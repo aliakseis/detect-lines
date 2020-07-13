@@ -317,31 +317,57 @@ int main(int argc, char** argv)
 #endif
 
 #if 1
-    Mat dst = Mat::zeros(src.size(), src.type());// = src.clone();
+    //Mat dst = Mat::zeros(src.size(), src.type());// = src.clone();
 
-    const double alpha = 2.;
-    const double beta = 20.;
+    //const double alpha = 2.;
+    //const double beta = 20.;
 
-    for (int y = 0; y < src.rows; y++) {
-        for (int x = 0; x < src.cols; x++) {
-                dst.at<uchar>(y, x) =
-                    saturate_cast<uchar>(alpha*src.at<uchar>(y, x) + beta);
+    //for (int y = 0; y < src.rows; y++) {
+    //    for (int x = 0; x < src.cols; x++) {
+    //            dst.at<uchar>(y, x) =
+    //                saturate_cast<uchar>(alpha*src.at<uchar>(y, x) + beta);
+    //    }
+    //}
+    //const auto kernel_size = 5;
+    //GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+
+    //Mat dst;
+
+    // heuristics
+
+    Mat dst = src.clone();
+
+    const int threshold = 50;
+    for (int i = 1; i < std::min(dst.cols, dst.rows); ++i)
+    {
+       
+        const auto start_value = dst.at<uchar>(0, i);
+        for (int j = i; --j >= 0;)
+        {
+            const auto value = dst.at<uchar>(i - j - 1, j);
+            if (value < start_value - threshold)
+                break;
+            dst.at<uchar>(i - j - 1, j) = start_value;
         }
     }
-    const auto kernel_size = 5;
+
+
+    const auto kernel_size = 3;
     GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
     const auto filtered = dst.clone();
 #endif
-    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 11, 2);
+    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
 
-    medianBlur(dst, dst, 3);
+    //medianBlur(dst, dst, 3);
 
-    bitwise_not(dst, dst);
+    //bitwise_not(dst, dst);
+
+    auto thresh = dst.clone();
 
     thinning(dst, dst);
 
     // Specify size on vertical axis
-    int vertical_size = 2;// dst.rows / 30;
+    int vertical_size = 4;// dst.rows / 30;
     // Create structure element for extracting vertical lines through morphology operations
     Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
     // Apply morphology operations
@@ -404,17 +430,19 @@ int main(int argc, char** argv)
     //![hough_lines_p]
     // Probabilistic Line Transform
     vector<Vec4i> linesP; // will hold the results of the detection
-    HoughLinesP(dst, linesP, 1, CV_PI/180/10, 15, 5, 15 ); // runs the actual detection
+    HoughLinesP(dst, linesP, 1, CV_PI/180/10, 10, 5, 25 ); // runs the actual detection
     //![hough_lines_p]
     //![draw_lines_p]
     // Draw the lines
-    for( size_t i = 0; i < linesP.size(); i++ )
+    //for( size_t i = 0; i < linesP.size(); i++ )
+    for (int i = linesP.size(); --i >= 0; )
     {
         Vec4i l = linesP[i];
-        if (l[1] == l[3])
+        if (l[1] == l[3] || fabs(l[0] - l[2]) / fabs(l[1] - l[3]) > 0.1)
+        {
+            linesP.erase(linesP.begin() + i);
             continue;
-        if (fabs(l[0] - l[2]) / fabs(l[1] - l[3]) > 0.1)
-            continue;
+        }
 
         auto color = (min(l[1], l[3]) < 380) ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
 
@@ -429,6 +457,8 @@ int main(int argc, char** argv)
     imshow("Filtered", filtered);
 
     imshow("Transform", dst);
+
+    imshow("Threshold", thresh);
 
     //imshow("Detected Lines (in red) - Line Transform", cdst);
 
