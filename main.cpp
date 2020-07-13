@@ -7,11 +7,14 @@
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 
+#include "opencv2/ximgproc.hpp"
+
+
 using namespace cv;
 using namespace std;
 
 
-
+using namespace cv::ximgproc;
 
 
 // Rearrange the quadrants of a Fourier image so that the origin is at
@@ -129,7 +132,8 @@ void create_butterworth_lowpass_filter(Mat &dft_Filter, int D, int n)
 
 void filter2DFreq(const Mat& inputImg, Mat& outputImg/*, const Mat& H*/)
 {
-    int radius = 50;				// low pass filter parameter
+    //int radius = 50;				// low pass filter parameter
+    int radius = 10;				// low pass filter parameter
     int order = 2;				// low pass filter parameter
 
     Mat planes[2] = { Mat_<float>(inputImg.clone()), Mat::zeros(inputImg.size(), CV_32F) };
@@ -180,6 +184,76 @@ int main(int argc, char** argv)
     }
     //![load]
 
+#if 0
+    Mat image;
+    filter2DFreq(src, image);
+    normalize(image, image, 0, 255, NORM_MINMAX);
+    image.convertTo(image, CV_8U);
+#endif
+
+
+#if 0
+
+    Mat image;
+    filter2DFreq(src, image);
+    normalize(image, image, 0, 255, NORM_MINMAX);
+    image.convertTo(image, CV_8U);
+
+
+    // Create FLD detector
+    // Param               Default value   Description
+    // length_threshold    10            - Segments shorter than this will be discarded
+    // distance_threshold  1.41421356    - A point placed from a hypothesis line
+    //                                     segment farther than this will be
+    //                                     regarded as an outlier
+    // canny_th1           50            - First threshold for
+    //                                     hysteresis procedure in Canny()
+    // canny_th2           50            - Second threshold for
+    //                                     hysteresis procedure in Canny()
+    // canny_aperture_size 3             - Aperturesize for the sobel
+    //                                     operator in Canny()
+    // do_merge            false         - If true, incremental merging of segments
+    //                                     will be perfomred
+    int length_threshold = 10;
+    float distance_threshold = 1.41421356f;
+    double canny_th1 = 50.0;
+    double canny_th2 = 50.0;
+    int canny_aperture_size = 3;
+
+    //bool do_merge = false;
+    bool do_merge = true;
+
+    Ptr<FastLineDetector> fld = createFastLineDetector(length_threshold,
+        distance_threshold, canny_th1, canny_th2, canny_aperture_size,
+        do_merge);
+    vector<Vec4f> lines_fld;
+    // Because of some CPU's power strategy, it seems that the first running of
+    // an algorithm takes much longer. So here we run the algorithm 10 times
+    // to see the algorithm's processing time with sufficiently warmed-up
+    // CPU performance.
+    for (int run_count = 0; run_count < 10; run_count++) {
+        double freq = getTickFrequency();
+        lines_fld.clear();
+        int64 start = getTickCount();
+        // Detect the lines with FLD
+        fld->detect(image, lines_fld);
+        double duration_ms = double(getTickCount() - start) * 1000 / freq;
+        //std::cout << "Elapsed time for FLD " << duration_ms << " ms." << std::endl;
+    }
+    // Show found lines with FLD
+    Mat line_image_fld(image);
+    fld->drawSegments(line_image_fld, lines_fld);
+    imshow("FLD result", line_image_fld);
+
+#endif
+
+
+
+
+
+
+
+
     //![edge_detection]
     // Edge detection
 
@@ -192,17 +266,94 @@ int main(int argc, char** argv)
     Canny(src, dst, 50, 200, 3);
 #endif
 
+#if 0
     Mat dst;
     filter2DFreq(src, dst);
     normalize(dst, dst, 0, 255, NORM_MINMAX);
     dst.convertTo(dst, CV_8U);
 
-    cv::Rect roi(50, 50, dst.cols - 100, dst.rows - 100);
+    const auto borderSize = 20;
+
+    cv::Rect roi(borderSize, borderSize, dst.cols - borderSize * 2, dst.rows - borderSize * 2);
     dst = dst(roi);
+
+    const auto filtered = dst.clone();
 
     //Canny(dst, dst, 50, 200, 3);
 
     //auto dst = src;
+#endif
+
+#if 0
+    Mat flt;
+    filter2DFreq(src, flt);
+    //normalize(dst, dst, 0, 255, NORM_MINMAX);
+    //dst.convertTo(dst, CV_8U);
+
+    const auto borderSize = 20;
+
+    cv::Rect roi(borderSize, borderSize, flt.cols - borderSize * 2, flt.rows - borderSize * 2);
+    flt = flt(roi);
+
+    //const double alpha = 8.;
+    //const double beta = -512.;
+    const double alpha = 2.;
+    const double beta = 128;
+
+    Mat dst = Mat::zeros(flt.size(), src.type());// = src.clone();
+
+    for (int y = 0; y < flt.rows; y++) {
+        for (int x = 0; x < flt.cols; x++) {
+            dst.at<uchar>(y, x) =
+                saturate_cast<uchar>(alpha*flt.at<float>(y, x) + beta);
+        }
+    }
+
+    const auto filtered = dst.clone();
+
+    //Canny(dst, dst, 50, 200, 3);
+
+    //auto dst = src;
+#endif
+
+#if 1
+    Mat dst = Mat::zeros(src.size(), src.type());// = src.clone();
+
+    const double alpha = 2.;
+    const double beta = 20.;
+
+    for (int y = 0; y < src.rows; y++) {
+        for (int x = 0; x < src.cols; x++) {
+                dst.at<uchar>(y, x) =
+                    saturate_cast<uchar>(alpha*src.at<uchar>(y, x) + beta);
+        }
+    }
+    const auto kernel_size = 5;
+    GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+    const auto filtered = dst.clone();
+#endif
+    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 11, 2);
+
+    medianBlur(dst, dst, 3);
+
+    bitwise_not(dst, dst);
+
+    thinning(dst, dst);
+
+    // Specify size on vertical axis
+    int vertical_size = 2;// dst.rows / 30;
+    // Create structure element for extracting vertical lines through morphology operations
+    Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
+    // Apply morphology operations
+    erode(dst, dst, verticalStructure, Point(-1, -1));
+    dilate(dst, dst, verticalStructure, Point(-1, -1));
+
+
+    //Canny(dst, dst, 50, 200, 3);
+
+    //cv::Rect roi(50, 50, dst.cols - 100, dst.rows - 100);
+    //dst = dst(roi);
+
 
 #if 0
     // Declare the variables we are going to use
@@ -225,13 +376,13 @@ int main(int argc, char** argv)
     cvtColor(dst, cdstP, COLOR_GRAY2BGR);
     //cdstP = cdst.clone();
 
-    //*
+    /*
     //![hough_lines]
     // Standard Hough Line Transform
     Mat cdst = cdstP.clone();
     vector<Vec2f> lines; // will hold the results of the detection
-    //HoughLines(dst, lines, 1, CV_PI/180, 720, 0, 0, CV_PI / 2 - 0.2, CV_PI / 2 + 0.2 ); // runs the actual detection
-    HoughLines(dst, lines, 1, CV_PI / 180, 800); // runs the actual detection
+    HoughLines(dst, lines, 1, CV_PI / 180, 200, 0, 0, 0, 0.1);// CV_PI / 2 - 0.2, CV_PI / 2 + 0.2 ); // runs the actual detection
+    //HoughLines(dst, lines, 1, CV_PI / 180, 800); // runs the actual detection
     //![hough_lines]
     //![draw_lines]
     // Draw the lines
@@ -245,7 +396,7 @@ int main(int argc, char** argv)
         pt1.y = cvRound(y0 + 1000*(a));
         pt2.x = cvRound(x0 - 1000*(-b));
         pt2.y = cvRound(y0 - 1000*(a));
-        line( cdst, pt1, pt2, Scalar(0,0,255), 3, LINE_AA);
+        line( cdst, pt1, pt2, Scalar(0,0,255), 1, LINE_AA);
     }
     //![draw_lines]
     //*/
@@ -253,14 +404,21 @@ int main(int argc, char** argv)
     //![hough_lines_p]
     // Probabilistic Line Transform
     vector<Vec4i> linesP; // will hold the results of the detection
-    HoughLinesP(dst, linesP, 3, CV_PI/180, 50, /*50*/400, 10 ); // runs the actual detection
+    HoughLinesP(dst, linesP, 1, CV_PI/180/10, 15, 5, 15 ); // runs the actual detection
     //![hough_lines_p]
     //![draw_lines_p]
     // Draw the lines
     for( size_t i = 0; i < linesP.size(); i++ )
     {
         Vec4i l = linesP[i];
-        line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0,0,255), 3, LINE_AA);
+        if (l[1] == l[3])
+            continue;
+        if (fabs(l[0] - l[2]) / fabs(l[1] - l[3]) > 0.1)
+            continue;
+
+        auto color = (min(l[1], l[3]) < 380) ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
+
+        line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), color, 1, LINE_AA);
     }
     //![draw_lines_p]
 
@@ -268,9 +426,11 @@ int main(int argc, char** argv)
     // Show results
     imshow("Source", src);
 
-    imshow("Canny Transform", dst);
+    imshow("Filtered", filtered);
 
-    imshow("Detected Lines (in red) - Line Transform", cdst);
+    imshow("Transform", dst);
+
+    //imshow("Detected Lines (in red) - Line Transform", cdst);
 
     imshow("Detected Lines (in red) - Probabilistic Line Transform", cdstP);
     //![imshow]
