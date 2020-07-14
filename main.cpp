@@ -637,32 +637,58 @@ int main(int argc, char** argv)
     }
 
     // fit line to each equivalence class point cloud
+    //std::vector<Vec4i> reducedLines = std::accumulate(
+    //    pointClouds.begin(), pointClouds.end(), std::vector<Vec4i>{}, [](std::vector<Vec4i> target, const std::vector<Point2i>& _pointCloud) {
+    //    std::vector<Point2i> pointCloud = _pointCloud;
+
+    //    //lineParams: [vx,vy, x0,y0]: (normalized vector, point on our contour)
+    //    // (x,y) = (x0,y0) + t*(vx,vy), t -> (-inf; inf)
+    //    Vec4f lineParams; 
+    //    fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
+
+    //    // derive the bounding xs of point cloud
+    //    decltype(pointCloud)::iterator minXP, maxXP;
+    //    std::tie(minXP, maxXP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.x < p2.x; });
+
+    //    // derive y coords of fitted line
+    //    float m = lineParams[1] / lineParams[0];
+    //    int y1 = ((minXP->x - lineParams[2]) * m) + lineParams[3];
+    //    int y2 = ((maxXP->x - lineParams[2]) * m) + lineParams[3];
+
+    //    target.push_back(Vec4i(minXP->x, y1, maxXP->x, y2));
+    //    return target;
+    //});
     std::vector<Vec4i> reducedLines = std::accumulate(
         pointClouds.begin(), pointClouds.end(), std::vector<Vec4i>{}, [](std::vector<Vec4i> target, const std::vector<Point2i>& _pointCloud) {
         std::vector<Point2i> pointCloud = _pointCloud;
 
         //lineParams: [vx,vy, x0,y0]: (normalized vector, point on our contour)
         // (x,y) = (x0,y0) + t*(vx,vy), t -> (-inf; inf)
-        Vec4f lineParams; 
+        Vec4f lineParams;
         fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
 
         // derive the bounding xs of point cloud
-        decltype(pointCloud)::iterator minXP, maxXP;
-        std::tie(minXP, maxXP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.x < p2.x; });
+        decltype(pointCloud)::iterator minYP, maxYP;
+        std::tie(minYP, maxYP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.y < p2.y; });
 
         // derive y coords of fitted line
-        float m = lineParams[1] / lineParams[0];
-        int y1 = ((minXP->x - lineParams[2]) * m) + lineParams[3];
-        int y2 = ((maxXP->x - lineParams[2]) * m) + lineParams[3];
+        float m = lineParams[0] / lineParams[1];
+        int x1 = ((minYP->y - lineParams[3]) * m) + lineParams[2];
+        int x2 = ((maxYP->y - lineParams[3]) * m) + lineParams[2];
 
-        target.push_back(Vec4i(minXP->x, y1, maxXP->x, y2));
+        target.push_back(Vec4i(x1, minYP->y, x2, maxYP->y));
         return target;
     });
 
-    for (Vec4i reduced : reducedLines) {
-        line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), Scalar(255, 255, 255), 2);
-    }
+    //for (Vec4i reduced : reducedLines) {
+    //    line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), Scalar(255, 255, 255), 2);
+    //}
 
+    for (int i = 0; i < reducedLines.size(); ++i)
+    {
+        auto& reduced = reducedLines[i];
+        line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), colors[i], 2);
+    }
 
 
     //![imshow]
