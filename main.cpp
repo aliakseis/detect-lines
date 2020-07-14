@@ -501,8 +501,8 @@ int main(int argc, char** argv)
     // Create structure element for extracting vertical lines through morphology operations
     Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
     // Apply morphology operations
-    erode(dst, dst, verticalStructure, Point(-1, -1));
-    dilate(dst, dst, verticalStructure, Point(-1, -1));
+    erode(dst, dst, verticalStructure);
+    dilate(dst, dst, verticalStructure);
 
 
     //Canny(dst, dst, 50, 200, 3);
