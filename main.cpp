@@ -982,22 +982,34 @@ int main(int argc, char** argv)
 #endif
 
     auto reducedLines0 = reduceLines(linesP, 25, 1.0, 3);
+
     auto reducedLines = reduceLines(reducedLines0, 50, 0.7, 2.5);
 
+    reducedLines.erase(std::remove_if(reducedLines.begin(), reducedLines.end(), [](const Vec4i& line) {
+        return hypot(line[2] - line[0], line[3] - line[1]) <= 10;
+    }), reducedLines.end());
+
     Mat reducedLinesImg0 = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
-    for (int i = 0; i < reducedLines0.size(); ++i)
     {
-        auto& reduced = reducedLines0[i];
-        line(reducedLinesImg0, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), { 255, 255, 255 }, 2);
+        RNG rng(215526);
+        for (int i = 0; i < reducedLines0.size(); ++i)
+        {
+            auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
+            auto& reduced = reducedLines0[i];
+            line(reducedLinesImg0, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
+        }
     }
 
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
-    for (int i = 0; i < reducedLines.size(); ++i)
     {
-        auto& reduced = reducedLines[i];
-        line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), {255, 255, 255}, 2);
+        RNG rng(215526);
+        for (int i = 0; i < reducedLines.size(); ++i)
+        {
+            auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
+            auto& reduced = reducedLines[i];
+            line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
+        }
     }
-
 
     //![imshow]
     // Show results
