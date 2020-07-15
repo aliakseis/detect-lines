@@ -467,26 +467,73 @@ int main(int argc, char** argv)
 
     Mat dst = src.clone();
 
-    const int threshold = 50;
-    for (int i = 1; i < std::min(dst.cols, dst.rows); ++i)
-    {
-       
-        const auto start_value = dst.at<uchar>(0, i);
-        for (int j = i; --j >= 0;)
-        {
-            const auto value = dst.at<uchar>(i - j - 1, j);
-            if (value < start_value - threshold)
-                break;
-            dst.at<uchar>(i - j - 1, j) = start_value;
-        }
-    }
+    //for (int i = 1; i < std::min(dst.cols, dst.rows); ++i)
+    //{
+    //    const int threshold = 50;
+
+    //    const auto start_value = dst.at<uchar>(0, i);
+    //    for (int j = i; --j >= 0;)
+    //    {
+    //        const auto value = dst.at<uchar>(i - j - 1, j);
+    //        if (value < start_value - threshold)
+    //            break;
+    //        dst.at<uchar>(i - j - 1, j) = start_value;
+    //    }
+    //}
 
 
     const auto kernel_size = 3;
     GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
     const auto filtered = dst.clone();
+
+    // mask
+    Mat mask;
+    threshold(dst, mask, 180, 255, THRESH_BINARY_INV);
+    int horizontal_size = 40;// dst.rows / 30;
+    // Create structure element for extracting vertical lines through morphology operations
+    Mat horizontalStructure = getStructuringElement(MORPH_RECT, Size(horizontal_size, 1));
+    // Apply morphology operations
+    //erode(dst, dst, verticalStructure);
+    dilate(mask, mask, horizontalStructure);
+
+    int circular_size = 5;// dst.rows / 30;
+    Mat circularStructure = getStructuringElement(MORPH_ELLIPSE, Size(circular_size, circular_size));
+    dilate(mask, mask, circularStructure);
+
 #endif
-    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+
+    {
+        auto neg = 255 - dst;
+        Mat buf1;
+        adaptiveThreshold(neg, buf1, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 19, 0);
+        Mat buf2;
+        adaptiveThreshold(dst, buf2, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+        buf1 += buf2;
+        threshold(buf1, dst, 1, 255, THRESH_BINARY);
+    }
+
+    //adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+
+    //Mat accum;
+    //bool first = true;
+    //for (int i = 11; i <= 63; i += 2)
+    //{
+    //    Mat buf;
+    //    adaptiveThreshold(dst, buf, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, i, 2);
+    //    if (first)
+    //        accum = buf;
+    //    else
+    //        accum += buf;
+
+    //    first = false;
+    //}
+
+    //threshold(accum, dst, 16, 255, THRESH_BINARY);
+
+    //imshow("Transform", dst);
+    //waitKey();
+
+    dst &= mask;
 
     //medianBlur(dst, dst, 3);
 
@@ -560,7 +607,8 @@ int main(int argc, char** argv)
     //![hough_lines_p]
     // Probabilistic Line Transform
     vector<Vec4i> linesP; // will hold the results of the detection
-    HoughLinesP(dst, linesP, 1, CV_PI/180/10, 10, 5, 25 ); // runs the actual detection
+    const int threshold = 10;
+    HoughLinesP(dst, linesP, 1, CV_PI/180/10, threshold, 5, 25 ); // runs the actual detection
     //![hough_lines_p]
     //![draw_lines_p]
     // Draw the lines
@@ -583,19 +631,19 @@ int main(int argc, char** argv)
 
     /////////////////////////////////////////////////////////////////////////////////////
 
-    // remove small lines
-    std::vector<Vec4i> linesWithoutSmall;
-    std::copy_if(linesP.begin(), linesP.end(), std::back_inserter(linesWithoutSmall), [](Vec4f line) {
-        float length = sqrtf((line[2] - line[0]) * (line[2] - line[0])
-            + (line[3] - line[1]) * (line[3] - line[1]));
-        return length > 5;
-    });
+    //// remove small lines
+    //std::vector<Vec4i> linesWithoutSmall;
+    //std::copy_if(linesP.begin(), linesP.end(), std::back_inserter(linesWithoutSmall), [](Vec4f line) {
+    //    float length = sqrtf((line[2] - line[0]) * (line[2] - line[0])
+    //        + (line[3] - line[1]) * (line[3] - line[1]));
+    //    return length > 5;
+    //});
 
     //std::cout << "Detected: " << linesWithoutSmall.size() << std::endl;
 
     // partition via our partitioning function
     std::vector<int> labels;
-    int equilavenceClassesCount = cv::partition(linesWithoutSmall, labels, [](const Vec4i& l1, const Vec4i& l2) {
+    int equilavenceClassesCount = cv::partition(linesP, labels, [](const Vec4i& l1, const Vec4i& l2) {
         return extendedBoundingRectangleLineEquivalence(
             l1, l2,
             // line extension length 
@@ -621,8 +669,8 @@ int main(int argc, char** argv)
     }
 
     // draw original detected lines
-    for (int i = 0; i < linesWithoutSmall.size(); i++) {
-        Vec4i& detectedLine = linesWithoutSmall[i];
+    for (int i = 0; i < linesP.size(); i++) {
+        Vec4i& detectedLine = linesP[i];
         line(detectedLinesImg,
             cv::Point(detectedLine[0], detectedLine[1]),
             cv::Point(detectedLine[2], detectedLine[3]), colors[labels[i]], 2);
@@ -630,8 +678,8 @@ int main(int argc, char** argv)
 
     // build point clouds out of each equivalence classes
     std::vector<std::vector<Point2i>> pointClouds(equilavenceClassesCount);
-    for (int i = 0; i < linesWithoutSmall.size(); i++) {
-        Vec4i& detectedLine = linesWithoutSmall[i];
+    for (int i = 0; i < linesP.size(); i++) {
+        Vec4i& detectedLine = linesP[i];
         pointClouds[labels[i]].push_back(Point2i(detectedLine[0], detectedLine[1]));
         pointClouds[labels[i]].push_back(Point2i(detectedLine[2], detectedLine[3]));
     }
@@ -696,6 +744,8 @@ int main(int argc, char** argv)
     imshow("Source", src);
 
     imshow("Filtered", filtered);
+
+    imshow("Mask", mask);
 
     imshow("Transform", dst);
 
