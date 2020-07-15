@@ -616,7 +616,9 @@ int main(int argc, char** argv)
     for (int i = linesP.size(); --i >= 0; )
     {
         Vec4i l = linesP[i];
-        if (l[1] == l[3] || fabs(l[0] - l[2]) / fabs(l[1] - l[3]) > 0.1)
+        const double expectedAlgle = 0.05;
+        if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle)
+        //if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3])) > 0.1)
         {
             linesP.erase(linesP.begin() + i);
             continue;
@@ -661,6 +663,74 @@ int main(int argc, char** argv)
     Mat detectedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     Mat reducedLinesImg = detectedLinesImg.clone();
 
+    std::vector<std::vector<Vec4i>> groups(equilavenceClassesCount);
+    for (int i = 0; i < linesP.size(); i++) {
+        Vec4i& detectedLine = linesP[i];
+        groups[labels[i]].push_back(detectedLine);
+    }
+
+#if 0
+    for (int i = groups.size(); --i >= 0; ) {
+        auto& group = groups[i];
+        int minX = INT_MAX;
+        int minY = INT_MAX;
+        int maxX = INT_MIN;
+        int maxY = INT_MIN;
+        int length = 0;
+
+        for (auto& line : group) {
+            minX = std::min({ minX, line[0], line[2] });
+            maxX = std::max({ maxX, line[0], line[2] });
+            minY = std::min({ minY, line[1], line[3] });
+            maxY = std::max({ maxY, line[1], line[3] });
+
+            length += hypot(line[2] - line[0], line[3] - line[1]);
+        }
+
+        const auto extent = hypot(maxX - minX, maxY - minY);
+
+        if (length > extent * 1.5) { // split
+
+            std::vector<Point2i> pointCloud;
+            for (auto& detectedLine : group) {
+                pointCloud.push_back(Point2i(detectedLine[0], detectedLine[1]));
+                pointCloud.push_back(Point2i(detectedLine[2], detectedLine[3]));
+            }
+
+            Vec4f lineParams;
+            fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
+
+            const auto cos_phi = -lineParams[1];
+            const auto sin_phi = lineParams[0];
+
+            std::vector<double> offsets;
+            for (auto& detectedLine : group) {
+                double x = (detectedLine[0] + detectedLine[2]) / 2.;
+                double y = (detectedLine[1] + detectedLine[3]) / 2.;
+                double x_new = x * cos_phi - y * sin_phi;
+                offsets.push_back(x_new);
+            }
+
+            const auto minmax = std::minmax_element(offsets.begin(), offsets.end());
+            const auto medium = (*minmax.first + *minmax.second) / 2;
+
+            std::vector<Vec4i> first, second;
+            for (int i = 0; i < group.size(); ++i) {
+                auto& line = group[i];
+                if (offsets[i] < medium)
+                    first.push_back(line);
+                else
+                    second.push_back(line);
+            }
+
+            group = first;
+            groups.push_back(second);
+        }
+    }
+#endif
+
+    equilavenceClassesCount = groups.size();
+
     // grab a random colour for each equivalence class
     RNG rng(215526);
     std::vector<Scalar> colors(equilavenceClassesCount);
@@ -669,20 +739,24 @@ int main(int argc, char** argv)
     }
 
     // draw original detected lines
-    for (int i = 0; i < linesP.size(); i++) {
-        Vec4i& detectedLine = linesP[i];
-        line(detectedLinesImg,
-            cv::Point(detectedLine[0], detectedLine[1]),
-            cv::Point(detectedLine[2], detectedLine[3]), colors[labels[i]], 2);
-    }
+    //for (int i = 0; i < linesP.size(); i++) {
+    for (int i = 0; i < equilavenceClassesCount; ++i)
+        for (auto &detectedLine : groups[i]) {
+            //Vec4i& detectedLine = linesP[i];
+            line(detectedLinesImg,
+                cv::Point(detectedLine[0], detectedLine[1]),
+                cv::Point(detectedLine[2], detectedLine[3]), colors[i/*labels[i]*/], 2);
+        }
 
     // build point clouds out of each equivalence classes
     std::vector<std::vector<Point2i>> pointClouds(equilavenceClassesCount);
-    for (int i = 0; i < linesP.size(); i++) {
-        Vec4i& detectedLine = linesP[i];
-        pointClouds[labels[i]].push_back(Point2i(detectedLine[0], detectedLine[1]));
-        pointClouds[labels[i]].push_back(Point2i(detectedLine[2], detectedLine[3]));
-    }
+    //for (int i = 0; i < linesP.size(); i++) {
+    for (int i = 0; i < equilavenceClassesCount; ++i)
+        for (auto &detectedLine : groups[i]) {
+            //Vec4i& detectedLine = linesP[i];
+            pointClouds[i/*labels[i]*/].push_back(Point2i(detectedLine[0], detectedLine[1]));
+            pointClouds[i/*labels[i]*/].push_back(Point2i(detectedLine[2], detectedLine[3]));
+        }
 
     // fit line to each equivalence class point cloud
     //std::vector<Vec4i> reducedLines = std::accumulate(
