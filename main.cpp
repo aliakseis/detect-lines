@@ -251,7 +251,7 @@ std::vector<Point2i> boundingRectangleContour(Vec4i line, float d) {
 
 bool extendedBoundingRectangleLineEquivalence(const Vec4i& _l1, const Vec4i& _l2, 
     float extensionLength, float extensionLengthMaxFraction,
-    float maxAngleDiff, float boundingRectangleThickness) {
+    float boundingRectangleThickness) {
 
     Vec4i l1(_l1), l2(_l2);
     // extend lines by percentage of line width
@@ -502,17 +502,17 @@ int main(int argc, char** argv)
 
 #endif
 
-    {
-        auto neg = 255 - dst;
-        Mat buf1;
-        adaptiveThreshold(neg, buf1, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 19, 0);
-        Mat buf2;
-        adaptiveThreshold(dst, buf2, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
-        buf1 += buf2;
-        threshold(buf1, dst, 1, 255, THRESH_BINARY);
-    }
+    //{
+    //    auto neg = 255 - dst;
+    //    Mat buf1;
+    //    adaptiveThreshold(neg, buf1, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY, 19, 0);
+    //    Mat buf2;
+    //    adaptiveThreshold(dst, buf2, 1, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+    //    buf1 += buf2;
+    //    threshold(buf1, dst, 1, 255, THRESH_BINARY);
+    //}
 
-    //adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
 
     //Mat accum;
     //bool first = true;
@@ -652,8 +652,6 @@ int main(int argc, char** argv)
             25,
             // line extension length - as fraction of original line width
             1.0,
-            // maximum allowed angle difference for lines to be considered in same equivalence class
-            20,
             // thickness of bounding rectangle around each line
             4);
     });
