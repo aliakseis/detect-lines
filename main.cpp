@@ -658,6 +658,26 @@ int main(int argc, char** argv)
     GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
     const auto filtered = dst.clone();
 
+
+    Mat stripeless;
+    GaussianBlur(dst, stripeless, Size(63, 1), 0, 0, BORDER_DEFAULT);
+
+    Mat func = dst - stripeless + 128;
+
+    /*
+    Mat funkyBackground;
+    GaussianBlur(func, funkyBackground, Size(31, 31), 0, 0, BORDER_DEFAULT);
+    funkyBackground -= 1;
+
+    Mat funkyDiff = func < funkyBackground;
+    //*/
+
+    Mat funkyFunc;
+    adaptiveThreshold(func, funkyFunc, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 1.);
+
+    //Mat funkyDiff = filtered < background;
+
+
     Mat diff = filtered < background;
 
     // mask
@@ -710,6 +730,8 @@ int main(int argc, char** argv)
     dst &= mask;
 
     dst &= diff;
+
+    dst &= funkyFunc;
 
     //medianBlur(dst, dst, 3);
 
@@ -1050,7 +1072,7 @@ int main(int argc, char** argv)
     });
 
     auto approveLam = [](const Vec4i& line) {
-        return hypot(line[2] - line[0], line[3] - line[1]) > 50;
+        return hypot(line[2] - line[0], line[3] - line[1]) > 70;
     };
 
     reducedLines.erase(reducedLines.begin(), std::find_if(reducedLines.begin(), reducedLines.end(), approveLam));
@@ -1075,6 +1097,13 @@ int main(int argc, char** argv)
     imshow("Background", background);
 
     imshow("Diff", diff);
+
+
+    imshow("Stripeless", stripeless);
+
+    imshow("Func", func);
+
+    imshow("funkyFunc", funkyFunc);
 
 
     imshow("Filtered", filtered);
