@@ -293,6 +293,25 @@ bool extendedBoundingRectangleLineEquivalence(const Vec4i& _l1, const Vec4i& _l2
     //return false;
 }
 
+Vec4i HandlePointCloud(const std::vector<Point2i>& pointCloud) {
+    //lineParams: [vx,vy, x0,y0]: (normalized vector, point on our contour)
+    // (x,y) = (x0,y0) + t*(vx,vy), t -> (-inf; inf)
+    Vec4f lineParams;
+    fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
+
+    // derive the bounding xs of point cloud
+    std::vector<Point2i>::const_iterator minYP, maxYP;
+    std::tie(minYP, maxYP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.y < p2.y; });
+
+    // derive y coords of fitted line
+    float m = lineParams[0] / lineParams[1];
+    int x1 = ((minYP->y - lineParams[3]) * m) + lineParams[2];
+    int x2 = ((maxYP->y - lineParams[3]) * m) + lineParams[2];
+
+    return { x1, minYP->y, x2, maxYP->y };
+
+}
+
 std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
     float extensionLength, float extensionLengthMaxFraction,
     float boundingRectangleThickness)
@@ -354,7 +373,7 @@ std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
             fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
 
             const auto cos_phi = -lineParams[1];
-            const auto sin_phi = lineParams[0];
+            const auto sin_phi = -lineParams[0];
 
             std::vector<double> offsets;
             for (auto& detectedLine : group) {
@@ -436,26 +455,10 @@ std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
     //    return target;
     //});
     std::vector<Vec4i> reducedLines = std::accumulate(
-        pointClouds.begin(), pointClouds.end(), std::vector<Vec4i>{}, [](std::vector<Vec4i> target, const std::vector<Point2i>& _pointCloud) {
-        std::vector<Point2i> pointCloud = _pointCloud;
-
-        //lineParams: [vx,vy, x0,y0]: (normalized vector, point on our contour)
-        // (x,y) = (x0,y0) + t*(vx,vy), t -> (-inf; inf)
-        Vec4f lineParams;
-        fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
-
-        // derive the bounding xs of point cloud
-        decltype(pointCloud)::iterator minYP, maxYP;
-        std::tie(minYP, maxYP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.y < p2.y; });
-
-        // derive y coords of fitted line
-        float m = lineParams[0] / lineParams[1];
-        int x1 = ((minYP->y - lineParams[3]) * m) + lineParams[2];
-        int x2 = ((maxYP->y - lineParams[3]) * m) + lineParams[2];
-
-        target.push_back(Vec4i(x1, minYP->y, x2, maxYP->y));
-        return target;
-    });
+        pointClouds.begin(), pointClouds.end(), std::vector<Vec4i>{}, [](std::vector<Vec4i> target, const std::vector<Point2i>& pointCloud) {
+            target.push_back(HandlePointCloud(pointCloud));
+            return target;
+        });
 
     return reducedLines;
 }
@@ -1058,7 +1061,7 @@ int main(int argc, char** argv)
     Vec4f lineParams;
     fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
     const auto cos_phi = -lineParams[1];
-    const auto sin_phi = lineParams[0];
+    const auto sin_phi = -lineParams[0];
 
     auto sortLam = [cos_phi, sin_phi](const Vec4i& detectedLine) {
         double x = (detectedLine[0] + detectedLine[2]) / 2.;
@@ -1077,6 +1080,62 @@ int main(int argc, char** argv)
 
     reducedLines.erase(reducedLines.begin(), std::find_if(reducedLines.begin(), reducedLines.end(), approveLam));
     reducedLines.erase(std::find_if(reducedLines.rbegin(), reducedLines.rend(), approveLam).base(), reducedLines.end());
+
+    // merge
+#if 1
+    for (int i = reducedLines.size(); --i >= 0;)
+    {
+        auto& line = reducedLines[i];
+        if (hypot(line[2] - line[0], line[3] - line[1]) > 40)
+            continue;
+
+        auto val = sortLam(line);
+
+        double dist;
+        decltype(reducedLines)::iterator it;
+        if (i == 0) {
+            it = reducedLines.begin() + 1;
+            dist = sortLam(*it) - val;
+        }
+        else if (i == reducedLines.size() - 1) {
+            it = reducedLines.begin() + i - 2;
+            dist = val - sortLam(*it);
+        }
+        else {
+            const auto dist1 = val - sortLam(reducedLines[i - 1]);
+            const auto dist2 = sortLam(reducedLines[i + 1]) - val;
+            if (dist1 < dist2) {
+                it = reducedLines.begin() + i - 1;
+                dist = dist1;
+            }
+            else {
+                it = reducedLines.begin() + i + 1;
+                dist = dist2;
+            }
+        }
+
+        const auto distY = abs((line[1] + line[3]) / 2 - ((*it)[1] + (*it)[3]) / 2)
+            - (abs(line[1] - line[3]) + abs((*it)[1] - (*it)[3])) / 2;
+
+        const auto threshold = 2.5;
+        const auto thresholdY = 25;
+        if (dist > threshold || distY > thresholdY) {
+            reducedLines.erase(reducedLines.begin() + i);
+            continue;
+        }
+
+
+        std::vector<Point2i> pointCloud;
+        for (auto &detectedLine : { line , *it}) {
+            pointCloud.push_back(Point2i(detectedLine[0], detectedLine[1]));
+            pointCloud.push_back(Point2i(detectedLine[2], detectedLine[3]));
+        }
+
+        line = HandlePointCloud(pointCloud);
+
+        reducedLines.erase(it);
+    }
+#endif
 
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
