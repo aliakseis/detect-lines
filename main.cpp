@@ -793,9 +793,10 @@ int main(int argc, char** argv)
     {
         Vec4i l = linesP[i];
         const double expectedAlgle = 0.05;
+        const auto border = 10;
         if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
-            || l[0] == 0 && l[2] == 0 || l[1] == 0 && l[3] == 0
-            || l[0] == dst.cols - 1 && l[2] == dst.cols - 1 || l[1] == dst.rows - 1 && l[3] == dst.rows - 1)
+            || l[0] < border && l[2] < border || l[1] == 0 && l[3] == 0
+            || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1)
         //if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3])) > 0.1)
         {
             linesP.erase(linesP.begin() + i);
@@ -1012,6 +1013,49 @@ int main(int argc, char** argv)
         }
     }
 
+    //Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
+    //{
+    //    RNG rng(215526);
+    //    for (int i = 0; i < reducedLines.size(); ++i)
+    //    {
+    //        auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
+    //        auto& reduced = reducedLines[i];
+    //        line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
+    //    }
+    //}
+
+    // find prevailing direction
+    std::vector<Point2i> pointCloud;
+    for (auto& reduced : reducedLines)
+    {
+        auto centerX = (reduced[0] + reduced[2]) / 2;
+        auto centerY = (reduced[1] + reduced[3]) / 2;
+        pointCloud.push_back(Point2i(reduced[0] - centerX, reduced[1] - centerY));
+        pointCloud.push_back(Point2i(reduced[2] - centerX, reduced[3] - centerY));
+    }
+    Vec4f lineParams;
+    fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
+    const auto cos_phi = -lineParams[1];
+    const auto sin_phi = lineParams[0];
+
+    auto sortLam = [cos_phi, sin_phi](const Vec4i& detectedLine) {
+        double x = (detectedLine[0] + detectedLine[2]) / 2.;
+        double y = (detectedLine[1] + detectedLine[3]) / 2.;
+        double x_new = x * cos_phi - y * sin_phi;
+        return x_new;
+    };
+
+    std::sort(reducedLines.begin(), reducedLines.end(), [&sortLam](const Vec4i& l1, const Vec4i& l2) {
+        return sortLam(l1) < sortLam(l2);
+    });
+
+    auto approveLam = [](const Vec4i& line) {
+        return hypot(line[2] - line[0], line[3] - line[1]) > 50;
+    };
+
+    reducedLines.erase(reducedLines.begin(), std::find_if(reducedLines.begin(), reducedLines.end(), approveLam));
+    reducedLines.erase(std::find_if(reducedLines.rbegin(), reducedLines.rend(), approveLam).base(), reducedLines.end());
+
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
         RNG rng(215526);
@@ -1022,6 +1066,7 @@ int main(int argc, char** argv)
             line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
         }
     }
+
 
     //![imshow]
     // Show results
