@@ -650,9 +650,15 @@ int main(int argc, char** argv)
     //}
 
 
+    Mat background;
+    GaussianBlur(dst, background, Size(63, 63), 0, 0, BORDER_DEFAULT);
+    background -= 1;
+
     const auto kernel_size = 3;
     GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
     const auto filtered = dst.clone();
+
+    Mat diff = filtered < background;
 
     // mask
     Mat mask;
@@ -702,6 +708,8 @@ int main(int argc, char** argv)
     //waitKey();
 
     dst &= mask;
+
+    dst &= diff;
 
     //medianBlur(dst, dst, 3);
 
@@ -983,11 +991,15 @@ int main(int argc, char** argv)
 
     auto reducedLines0 = reduceLines(linesP, 25, 1.0, 3);
 
+    reducedLines0.erase(std::remove_if(reducedLines0.begin(), reducedLines0.end(), [](const Vec4i& line) {
+        return hypot(line[2] - line[0], line[3] - line[1]) <= 10;
+    }), reducedLines0.end());
+
     auto reducedLines = reduceLines(reducedLines0, 50, 0.7, 2.5);
 
-    reducedLines.erase(std::remove_if(reducedLines.begin(), reducedLines.end(), [](const Vec4i& line) {
-        return hypot(line[2] - line[0], line[3] - line[1]) <= 10;
-    }), reducedLines.end());
+    //reducedLines.erase(std::remove_if(reducedLines.begin(), reducedLines.end(), [](const Vec4i& line) {
+    //    return hypot(line[2] - line[0], line[3] - line[1]) <= 10;
+    //}), reducedLines.end());
 
     Mat reducedLinesImg0 = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
@@ -1014,6 +1026,11 @@ int main(int argc, char** argv)
     //![imshow]
     // Show results
     imshow("Source", src);
+
+    imshow("Background", background);
+
+    imshow("Diff", diff);
+
 
     imshow("Filtered", filtered);
 
