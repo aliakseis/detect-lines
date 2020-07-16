@@ -177,7 +177,7 @@ void filter2DFreq(const Mat& inputImg, Mat& outputImg/*, const Mat& H*/)
 //    return mc;
 //}
 
-Vec4i extendedLine(Vec4i line, double d, double max_coeff) {
+Vec4i extendedLine(const Vec4i& line, double d, double max_coeff) {
     //// oriented left-t-right
     //Vec4d _line = line[2] - line[0] < 0 ? Vec4d(line[2], line[3], line[0], line[1]) : Vec4d(line[0], line[1], line[2], line[3]);
     //double m = linearParameters(_line)[0];
@@ -193,7 +193,7 @@ Vec4i extendedLine(Vec4i line, double d, double max_coeff) {
     return Vec4d(line[0] - xd, line[1] - yd, line[2] + xd, line[3] + yd);
 }
 
-std::vector<Point2i> boundingRectangleContour(Vec4i line, float d) {
+std::vector<Point2i> boundingRectangleContour(const Vec4i& line, float d) {
     //// finds coordinates of perpendicular lines with length d in both line points
     //// https://math.stackexchange.com/a/2043065/183923
 
@@ -249,11 +249,11 @@ std::vector<Point2i> boundingRectangleContour(Vec4i line, float d) {
     };
 }
 
-bool extendedBoundingRectangleLineEquivalence(const Vec4i& _l1, const Vec4i& _l2, 
+bool extendedBoundingRectangleLineEquivalence(const Vec4i& l1, const Vec4i& l2, 
     float extensionLength, float extensionLengthMaxFraction,
     float boundingRectangleThickness) {
 
-    Vec4i l1(_l1), l2(_l2);
+    //Vec4i l1(_l1), l2(_l2);
     // extend lines by percentage of line width
     //float len1 = sqrtf((l1[2] - l1[0])*(l1[2] - l1[0]) + (l1[3] - l1[1])*(l1[3] - l1[1]));
     //float len2 = sqrtf((l2[2] - l2[0])*(l2[2] - l2[0]) + (l2[3] - l2[1])*(l2[3] - l2[1]));
@@ -814,26 +814,39 @@ int main(int argc, char** argv)
     //![draw_lines_p]
     // Draw the lines
     //for( size_t i = 0; i < linesP.size(); i++ )
-    for (int i = linesP.size(); --i >= 0; )
-    {
-        Vec4i l = linesP[i];
+
+    linesP.erase(std::remove_if(linesP.begin(), linesP.end(), [&dst](const Vec4i& l) {
         const double expectedAlgle = 0.05;
         const auto border = 10;
-        if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
+        return l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
             || l[0] < border && l[2] < border || l[1] == 0 && l[3] == 0
-            || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1)
-        //if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3])) > 0.1)
-        {
-            linesP.erase(linesP.begin() + i);
-            continue;
-        }
+            || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1;
+    }), linesP.end());
 
-        auto color = (min(l[1], l[3]) < 380) ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
+    //for (int i = linesP.size(); --i >= 0; )
+    //{
+    //    Vec4i l = linesP[i];
+    //    const double expectedAlgle = 0.05;
+    //    const auto border = 10;
+    //    if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
+    //        || l[0] < border && l[2] < border || l[1] == 0 && l[3] == 0
+    //        || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1)
+    //    //if (l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3])) > 0.1)
+    //    {
+    //        linesP.erase(linesP.begin() + i);
+    //        continue;
+    //    }
 
-        line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), color, 1, LINE_AA);
-    }
+    //    auto color = (min(l[1], l[3]) < 380) ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
+
+    //    line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), color, 1, LINE_AA);
+    //}
     //![draw_lines_p]
 
+    for (Vec4i& l : linesP) {
+        auto color = (min(l[1], l[3]) < 380) ? Scalar(0, 0, 255) : Scalar(0, 255, 0);
+        line( cdstP, Point(l[0], l[1]), Point(l[2], l[3]), color, 1, LINE_AA);
+    }
 
     /////////////////////////////////////////////////////////////////////////////////////
 #if 0
