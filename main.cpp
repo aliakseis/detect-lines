@@ -9,6 +9,7 @@
 
 #include "opencv2/ximgproc.hpp"
 
+#include <iostream>
 #include <numeric>
 
 using namespace cv;
@@ -1150,6 +1151,14 @@ int main(int argc, char** argv)
     }
 #endif
 
+    // normalize direction
+    for (auto& line : reducedLines) {
+        if (line[1] > line[3]) {
+            std::swap(line[0], line[2]);
+            std::swap(line[1], line[3]);
+        }
+    }
+
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
         RNG rng(215526);
@@ -1159,6 +1168,23 @@ int main(int argc, char** argv)
             auto& reduced = reducedLines[i];
             line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
         }
+    }
+
+    for (int i = 0; i < reducedLines.size() - 1; ++i) {
+        auto& first = reducedLines[i];
+        auto& second = reducedLines[i + 1];
+        if (first[1] > second[1])
+            continue;
+
+        const auto y_first = first[0] * sin_phi + first[1] * cos_phi;
+        const auto y_second = second[0] * sin_phi + second[1] * cos_phi;
+
+        const auto x_first = first[0] * cos_phi - first[1] * sin_phi;
+        const auto x_second = second[0] * cos_phi - second[1] * sin_phi;
+
+        const auto diff = y_second - y_first;
+
+        std::cout << (diff * 1.27) << '\n';
     }
 
 
