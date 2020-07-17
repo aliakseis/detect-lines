@@ -3,6 +3,8 @@
  * @brief This program demonstrates line finding with the Hough transform
  */
 
+#include "detect-lines.h"
+
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
@@ -24,7 +26,11 @@ using namespace cv::ximgproc;
 
 void shiftDFT(Mat& fImage)
 {
-    Mat tmp, q0, q1, q2, q3;
+    Mat tmp;
+    Mat q0;
+    Mat q1;
+    Mat q2;
+    Mat q3;
 
     // first crop the image, if it has an odd number of rows or columns
 
@@ -114,13 +120,13 @@ void create_butterworth_lowpass_filter(Mat &dft_Filter, int D, int n)
         for (int j = 0; j < dft_Filter.cols; j++)
         {
             float v = 0;
-            const double radius2d = (double)sqrt(pow((i - centre.x), 2.0) + pow((double)(j - centre.y), 2.0));
+            const auto radius2d = sqrt(pow((i - centre.x), 2.0) + pow(static_cast<double>(j - centre.y), 2.0));
             if (radius2d > 0)
             {
                 radius = fabs(i - centre.x);
                 const auto d = D / 10;
-                v = (1 / (1 + pow((double)(radius / D), (double)(2 * n))));
-                v *= (1 / (1 + pow((double)(d / radius2d), (double)(2 * n))));
+                v = (1 / (1 + pow((radius / D), static_cast<double>(2 * n))));
+                v *= (1 / (1 + pow((d / radius2d), static_cast<double>(2 * n))));
             }
             tmp.at<float>(i, j) = v;
         }
@@ -301,7 +307,8 @@ Vec4i HandlePointCloud(const std::vector<Point2i>& pointCloud) {
     fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
 
     // derive the bounding xs of point cloud
-    std::vector<Point2i>::const_iterator minYP, maxYP;
+    std::vector<Point2i>::const_iterator minYP;
+    std::vector<Point2i>::const_iterator maxYP;
     std::tie(minYP, maxYP) = std::minmax_element(pointCloud.begin(), pointCloud.end(), [](const Point2i& p1, const Point2i& p2) { return p1.y < p2.y; });
 
     // derive y coords of fitted line
@@ -426,12 +433,13 @@ std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
     // build point clouds out of each equivalence classes
     std::vector<std::vector<Point2i>> pointClouds(equilavenceClassesCount);
     //for (int i = 0; i < linesP.size(); i++) {
-    for (int i = 0; i < equilavenceClassesCount; ++i)
+    for (int i = 0; i < equilavenceClassesCount; ++i) {
         for (auto &detectedLine : groups[i]) {
             //Vec4i& detectedLine = linesP[i];
-            pointClouds[i/*labels[i]*/].push_back(Point2i(detectedLine[0], detectedLine[1]));
-            pointClouds[i/*labels[i]*/].push_back(Point2i(detectedLine[2], detectedLine[3]));
+            pointClouds[i/*labels[i]*/].emplace_back(detectedLine[0], detectedLine[1]);
+            pointClouds[i/*labels[i]*/].emplace_back(detectedLine[2], detectedLine[3]);
         }
+}
 
     // fit line to each equivalence class point cloud
     //std::vector<Vec4i> reducedLines = std::accumulate(
@@ -465,6 +473,7 @@ std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
 }
 
 
+int DoMain(const char* filename);
 
 int main(int argc, char** argv)
 {
@@ -473,15 +482,41 @@ int main(int argc, char** argv)
 
     //![load]
     const char* default_file = "../data/sudoku.png";
-    const char* filename = argc >=2 ? argv[1] : default_file;
+    const char* filename = argc >= 2 ? argv[1] : default_file;
 
+    //return DoMain(filename);
+    Mat src = imread(filename);// , IMREAD_GRAYSCALE);
+
+    auto lines = calculating(filename);
+
+    Scalar color = Scalar(0, 255, 0);
+    int radius = 2;
+    int thickness = -1;
+    for (auto& line : lines) {
+        circle(src, Point(std::get<0>(line), std::get<1>(line)),  radius, color, thickness);
+        circle(src, Point(std::get<2>(line), std::get<3>(line)), radius, color, thickness);
+    }
+
+    imshow("Reduced Lines", src);
+
+
+    //![exit]
+    // Wait and Exit
+    waitKey();
+
+}
+
+
+
+int DoMain(const char* filename)
+{
     // Loads an image
     Mat src = imread( filename, IMREAD_GRAYSCALE );
 
     // Check if image is loaded fine
     if(src.empty()){
         printf(" Error opening image\n");
-        printf(" Program Arguments: [image_name -- default %s] \n", default_file);
+        printf(" Program Arguments: [image_name -- default %s] \n", filename);
         return -1;
     }
     //![load]
@@ -1044,10 +1079,9 @@ int main(int argc, char** argv)
     Mat reducedLinesImg0 = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
         RNG rng(215526);
-        for (int i = 0; i < reducedLines0.size(); ++i)
+        for (auto & reduced : reducedLines0)
         {
             auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
-            auto& reduced = reducedLines0[i];
             line(reducedLinesImg0, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
         }
     }
@@ -1069,8 +1103,8 @@ int main(int argc, char** argv)
     {
         auto centerX = (reduced[0] + reduced[2]) / 2;
         auto centerY = (reduced[1] + reduced[3]) / 2;
-        pointCloud.push_back(Point2i(reduced[0] - centerX, reduced[1] - centerY));
-        pointCloud.push_back(Point2i(reduced[2] - centerX, reduced[3] - centerY));
+        pointCloud.emplace_back(reduced[0] - centerX, reduced[1] - centerY);
+        pointCloud.emplace_back(reduced[2] - centerX, reduced[3] - centerY);
     }
     Vec4f lineParams;
     fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
@@ -1100,8 +1134,9 @@ int main(int argc, char** argv)
     for (int i = reducedLines.size(); --i >= 0;)
     {
         auto& line = reducedLines[i];
-        if (hypot(line[2] - line[0], line[3] - line[1]) > 40)
+        if (hypot(line[2] - line[0], line[3] - line[1]) > 40) {
             continue;
+}
 
         auto val = sortLam(line);
 
@@ -1141,8 +1176,8 @@ int main(int argc, char** argv)
 
         std::vector<Point2i> pointCloud;
         for (auto &detectedLine : { line , *it}) {
-            pointCloud.push_back(Point2i(detectedLine[0], detectedLine[1]));
-            pointCloud.push_back(Point2i(detectedLine[2], detectedLine[3]));
+            pointCloud.emplace_back(detectedLine[0], detectedLine[1]);
+            pointCloud.emplace_back(detectedLine[2], detectedLine[3]);
         }
 
         line = HandlePointCloud(pointCloud);
@@ -1162,10 +1197,9 @@ int main(int argc, char** argv)
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
         RNG rng(215526);
-        for (int i = 0; i < reducedLines.size(); ++i)
+        for (auto & reduced : reducedLines)
         {
             auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
-            auto& reduced = reducedLines[i];
             line(reducedLinesImg, Point(reduced[0], reduced[1]), Point(reduced[2], reduced[3]), color, 2);
         }
     }
@@ -1173,8 +1207,9 @@ int main(int argc, char** argv)
     for (int i = 0; i < reducedLines.size() - 1; ++i) {
         auto& first = reducedLines[i];
         auto& second = reducedLines[i + 1];
-        if (first[1] > second[1])
+        if (first[1] > second[1]) {
             continue;
+}
 
         const auto y_first = first[0] * sin_phi + first[1] * cos_phi;
         const auto y_second = second[0] * sin_phi + second[1] * cos_phi;
