@@ -654,6 +654,26 @@ int DoMain(const char* filename)
     //auto dst = src;
 #endif
 
+
+    for (int y = 0; y < src.rows; y++) {
+        for (int x = 0; x < src.cols; x++) {
+            auto v = src.at<uchar>(y, x);
+            //for (int i = 0; i < 2; ++i)
+            {
+                if (v < 0x40)
+                    v *= 2;
+                else if (v < 0x80)
+                    v += 0x40;
+                else
+                    v = v / 2 + 0x80;
+            }
+            src.at<uchar>(y, x) = v;
+        }
+    }
+
+    resize(src, src, Size(800, 800), 0, 0, INTER_CUBIC);
+
+
 #if 1
     //Mat dst = Mat::zeros(src.size(), src.type());// = src.clone();
 
@@ -690,15 +710,41 @@ int DoMain(const char* filename)
     //}
 
 
+#if 0
     Mat background;
     GaussianBlur(dst, background, Size(63, 63), 0, 0, BORDER_DEFAULT);
-    background -= 1;
+    //background -= 1;
+#endif
 
     const auto kernel_size = 3;
     GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
     const auto filtered = dst.clone();
 
+    //
+    Mat dstFloat;
+    src.convertTo(dstFloat, CV_32F);
 
+    Mat backgroundFloat;
+    GaussianBlur(dstFloat, backgroundFloat, Size(63, 63), 0, 0, BORDER_DEFAULT);
+    backgroundFloat -= 0.5;
+
+    Mat background;
+    backgroundFloat.convertTo(background, CV_8U);
+
+    GaussianBlur(dstFloat, dstFloat, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+
+    Mat diff = dstFloat < backgroundFloat;
+
+
+    Mat stripeless;
+    GaussianBlur(dstFloat, stripeless, Size(63, 1), 0, 0, BORDER_DEFAULT);
+
+    Mat funcFloat = (dstFloat - stripeless + 32.) * 4.;
+    //GaussianBlur(funcFloat, funcFloat, Size(3, 3), 0, 0, BORDER_DEFAULT);
+    Mat func;
+    funcFloat.convertTo(func, CV_8U);
+
+#if 0
     Mat stripeless;
     GaussianBlur(dst, stripeless, Size(63, 1), 0, 0, BORDER_DEFAULT);
 
@@ -711,14 +757,16 @@ int DoMain(const char* filename)
 
     Mat funkyDiff = func < funkyBackground;
     //*/
+#endif
 
     Mat funkyFunc;
-    adaptiveThreshold(func, funkyFunc, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 1.);
+    adaptiveThreshold(func, funkyFunc, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2.);
+
 
     //Mat funkyDiff = filtered < background;
 
 
-    Mat diff = filtered < background;
+    //Mat diff = filtered < background;
 
     // mask
     Mat mask;
@@ -746,7 +794,7 @@ int DoMain(const char* filename)
     //    threshold(buf1, dst, 1, 255, THRESH_BINARY);
     //}
 
-    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2);
+    adaptiveThreshold(dst, dst, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 1.5);
 
     //Mat accum;
     //bool first = true;
@@ -766,6 +814,8 @@ int DoMain(const char* filename)
 
     //imshow("Transform", dst);
     //waitKey();
+
+    auto thresh0 = dst.clone();
 
     dst &= mask;
 
@@ -1290,6 +1340,8 @@ int DoMain(const char* filename)
     imshow("Mask", mask);
 
     imshow("Transform", dst);
+
+    imshow("Threshold0", thresh0);
 
     imshow("Threshold", thresh);
 
