@@ -246,9 +246,10 @@ std::vector<std::tuple<double, double, double, double, double>> calculating(cons
     HoughLinesP(dst, linesP, 1, CV_PI / 180 / 10, threshold, 5, 25); // runs the actual detection
 
     linesP.erase(std::remove_if(linesP.begin(), linesP.end(), [&dst](const Vec4i& l) {
-        const double expectedAlgle = 0.05;
+        const double expectedAlgle = -0.05;
+        const double expectedAngleDiff = 0.05;
         const auto border = 10;
-        return l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
+        return l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAngleDiff
             || l[0] < border && l[2] < border || l[1] == 0 && l[3] == 0
             || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1;
     }), linesP.end());

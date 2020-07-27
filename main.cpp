@@ -484,7 +484,8 @@ int main(int argc, char** argv)
     const char* default_file = "../data/sudoku.png";
     const char* filename = argc >= 2 ? argv[1] : default_file;
 
-    //return DoMain(filename);
+    return DoMain(filename);
+    /*
     Mat src = imread(filename);// , IMREAD_GRAYSCALE);
 
     auto lines = calculating(filename);
@@ -503,7 +504,7 @@ int main(int argc, char** argv)
     //![exit]
     // Wait and Exit
     waitKey();
-
+    */
 }
 
 
@@ -852,12 +853,57 @@ int DoMain(const char* filename)
     //for( size_t i = 0; i < linesP.size(); i++ )
 
     linesP.erase(std::remove_if(linesP.begin(), linesP.end(), [&dst](const Vec4i& l) {
-        const double expectedAlgle = 0.05;
+        const double expectedAlgle = 0;
+        const double expectedAngleDiff = 1.;
         const auto border = 10;
-        return l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAlgle
+        return l[1] == l[3] || fabs(double(l[0] - l[2]) / (l[1] - l[3]) + expectedAlgle) > expectedAngleDiff
             || l[0] < border && l[2] < border || l[1] == 0 && l[3] == 0
             || l[0] >= (dst.cols - border) && l[2] >= (dst.cols - border) || l[1] == dst.rows - 1 && l[3] == dst.rows - 1;
     }), linesP.end());
+
+    auto angleSortLam = [](const Vec4i& l) {
+        return double(l[0] - l[2]) / (l[1] - l[3]);
+    };
+
+    std::sort(linesP.begin(), linesP.end(), [&angleSortLam](const Vec4i& l1, const Vec4i& l2) {
+        return angleSortLam(l1) < angleSortLam(l2);
+    });
+
+    const double maxDiff = 0.1;
+
+    auto itFirst = linesP.begin();
+    auto itLast = linesP.begin();
+
+    double sum = 0;
+    double maxSum = 0;
+
+    auto itBegin = linesP.begin();
+    auto itEnd = linesP.begin();
+
+    while (itFirst != linesP.end() && itLast != linesP.end())
+    {
+        auto start = angleSortLam(*itFirst);
+
+        while (itLast != linesP.end() && angleSortLam(*itLast) < start + maxDiff)
+        {
+            sum += hypot((*itLast)[0] - (*itLast)[2], (*itLast)[1] - (*itLast)[3]);
+            ++itLast;
+        }
+        if (sum > maxSum)
+        {
+            itBegin = itFirst;
+            itEnd = itLast;
+            maxSum = sum;
+        }
+
+
+        sum -= hypot((*itFirst)[0] - (*itFirst)[2], (*itFirst)[1] - (*itFirst)[3]);
+        ++itFirst;
+    }
+
+    // vector<Vec4i>
+    linesP = { itBegin, itEnd };
+
 
     //for (int i = linesP.size(); --i >= 0; )
     //{
