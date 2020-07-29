@@ -11,6 +11,7 @@
 
 #include "opencv2/ximgproc.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <numeric>
 
@@ -262,8 +263,18 @@ bool extendedBoundingRectangleLineEquivalence(const Vec4i& l1, const Vec4i& l2,
 
     //Vec4i l1(_l1), l2(_l2);
     // extend lines by percentage of line width
-    //float len1 = sqrtf((l1[2] - l1[0])*(l1[2] - l1[0]) + (l1[3] - l1[1])*(l1[3] - l1[1]));
-    //float len2 = sqrtf((l2[2] - l2[0])*(l2[2] - l2[0]) + (l2[3] - l2[1])*(l2[3] - l2[1]));
+    /*
+    float len1 = hypot(l1[2] - l1[0], l1[3] - l1[1]);
+    float len2 = hypot(l2[2] - l2[0], l2[3] - l2[1]);
+
+    auto mm1 = std::minmax(l1[1], l1[3]);
+    auto mm2 = std::minmax(l2[1], l2[3]);
+
+    const auto longLength = 250;
+    const auto overlap = 50;
+    if (len1 > longLength && len2 > longLength && !(mm1.first + overlap >= mm2.second || mm2.first + overlap >= mm1.second))
+        return false;
+    */
 
     Vec4i el1 = extendedLine(l1, extensionLength, extensionLengthMaxFraction);
     Vec4i el2 = extendedLine(l2, extensionLength, extensionLengthMaxFraction);
@@ -654,7 +665,7 @@ int DoMain(const char* filename)
     //auto dst = src;
 #endif
 
-
+#if 0
     for (int y = 0; y < src.rows; y++) {
         for (int x = 0; x < src.cols; x++) {
             auto v = src.at<uchar>(y, x);
@@ -670,8 +681,31 @@ int DoMain(const char* filename)
             src.at<uchar>(y, x) = v;
         }
     }
+#endif
 
-    resize(src, src, Size(800, 800), 0, 0, INTER_CUBIC);
+    Mat lowLevelFloat = Mat::zeros(src.size(), CV_32F);
+    for (int y = 0; y < src.rows; y++) {
+        for (int x = 0; x < src.cols; x++) {
+            int v = src.at<uchar>(y, x);
+            lowLevelFloat.at<float>(y, x) = std::clamp(v, 0, 1) * 10;
+        }
+    }
+
+
+    resize(src, src, Size(800, 800), 0, 0, INTER_LANCZOS4);
+
+    resize(lowLevelFloat, lowLevelFloat, Size(800, 800), 0, 0, INTER_LANCZOS4);
+    GaussianBlur(lowLevelFloat, lowLevelFloat, Size(9, 35), 0, 0, BORDER_DEFAULT);
+    Mat lowLevel;
+    lowLevelFloat.convertTo(lowLevel, CV_8U);
+
+    src += lowLevel;
+
+    lowLevel *= 10;
+    lowLevel += 50;
+
+    //Mat funkyLowLevel;
+    //adaptiveThreshold(lowLevel, funkyLowLevel, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2.);
 
 
 #if 1
@@ -744,6 +778,17 @@ int DoMain(const char* filename)
     Mat func;
     funcFloat.convertTo(func, CV_8U);
 
+/*
+    Mat func2Float = (dstFloat - stripeless + 8.) * 16.;
+    GaussianBlur(func2Float, func2Float, Size(9, 31), 0, 0, BORDER_DEFAULT);
+
+    Mat func2;
+    func2Float.convertTo(func2, CV_8U);
+
+    Mat funkyFunc2;
+    adaptiveThreshold(func2, funkyFunc2, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 2.);
+*/
+
 #if 0
     Mat stripeless;
     GaussianBlur(dst, stripeless, Size(63, 1), 0, 0, BORDER_DEFAULT);
@@ -767,6 +812,9 @@ int DoMain(const char* filename)
 
 
     //Mat diff = filtered < background;
+
+    Mat level;
+    threshold(dst, level, 1, 255, THRESH_BINARY_INV);
 
     // mask
     Mat mask;
@@ -832,7 +880,7 @@ int DoMain(const char* filename)
     thinning(dst, dst);
 
     // Specify size on vertical axis
-    int vertical_size = 4;// dst.rows / 30;
+    int vertical_size = 5;// dst.rows / 30;
     // Create structure element for extracting vertical lines through morphology operations
     Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
     // Apply morphology operations
@@ -1162,9 +1210,28 @@ int DoMain(const char* filename)
 
     auto reducedLines0 = reduceLines(linesP, 25, 1.0, 3);
 
-    reducedLines0.erase(std::remove_if(reducedLines0.begin(), reducedLines0.end(), [](const Vec4i& line) {
-        return hypot(line[2] - line[0], line[3] - line[1]) <= 10;
-    }), reducedLines0.end());
+    {
+        // find prevailing direction
+        std::vector<Point2i> pointCloud;
+        for (auto& reduced : reducedLines0)
+        {
+            auto centerX = (reduced[0] + reduced[2]) / 2;
+            auto centerY = (reduced[1] + reduced[3]) / 2;
+            pointCloud.emplace_back(reduced[0] - centerX, reduced[1] - centerY);
+            pointCloud.emplace_back(reduced[2] - centerX, reduced[3] - centerY);
+        }
+        Vec4f lineParams;
+        fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
+        //const auto cos_phi = -lineParams[1];
+        //const auto sin_phi = -lineParams[0];
+        const auto tan_phi = lineParams[0] / lineParams[1];
+
+        reducedLines0.erase(std::remove_if(reducedLines0.begin(), reducedLines0.end(), [tan_phi](const Vec4i& line) {
+            return hypot(line[2] - line[0], line[3] - line[1]) <= 10
+                || fabs(double(line[2] - line[0]) / (line[3] - line[1]) - tan_phi) > 0.05
+                ;
+        }), reducedLines0.end());
+    }
 
     auto reducedLines = reduceLines(reducedLines0, 50, 0.7, 2.5);
 
@@ -1219,7 +1286,7 @@ int DoMain(const char* filename)
     });
 
     auto approveLam = [](const Vec4i& line) {
-        return hypot(line[2] - line[0], line[3] - line[1]) > 70;
+        return hypot(line[2] - line[0], line[3] - line[1]) > 100;
     };
 
     reducedLines.erase(reducedLines.begin(), std::find_if(reducedLines.begin(), reducedLines.end(), approveLam));
@@ -1332,7 +1399,18 @@ int DoMain(const char* filename)
 
     imshow("Func", func);
 
+    //imshow("Func2", func2);
+
+    //imshow("funkyFunc2", funkyFunc2);
+
     imshow("funkyFunc", funkyFunc);
+
+    imshow("level", level);
+
+
+    imshow("lowLevel", lowLevel);
+    //imshow("funkyLowLevel", funkyLowLevel);
+
 
 
     imshow("Filtered", filtered);
