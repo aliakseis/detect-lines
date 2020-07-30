@@ -533,6 +533,10 @@ int DoMain(const char* filename)
     }
     //![load]
 
+    auto ms = moments(src);
+
+    auto dummy = ms.m00 * src.rows / 2;
+
 #if 0
     Mat image;
     filter2DFreq(src, image);
@@ -1271,8 +1275,12 @@ int DoMain(const char* filename)
     }
     Vec4f lineParams;
     fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
-    const auto cos_phi = -lineParams[1];
-    const auto sin_phi = -lineParams[0];
+    auto cos_phi = -lineParams[1];
+    auto sin_phi = -lineParams[0];
+    if (cos_phi < 0) {
+        cos_phi = -cos_phi;
+        sin_phi = -sin_phi;
+    }
 
     auto sortLam = [cos_phi, sin_phi](const Vec4i& detectedLine) {
         double x = (detectedLine[0] + detectedLine[2]) / 2.;
@@ -1356,6 +1364,29 @@ int DoMain(const char* filename)
             std::swap(line[1], line[3]);
         }
     }
+
+    // garbage in garbage out
+    int y0 = INT_MAX;
+    int i0 = 0;
+    for (int i = 0; i < reducedLines.size(); ++i) {
+        int y = reducedLines[i][1] + reducedLines[i][0];
+        if (y < y0) {
+            y0 = y;
+            i0 = i;
+        }
+    }
+    if (!(i0 & 1)) {
+        for (int i = 0; i < i0; i += 2)
+        {
+            auto& line = reducedLines[i];
+            const int y = y0 - line[0];
+            if (line[1] > y) {
+                line[0] = line[2] + double(line[0] - line[2]) / (line[1] - line[3]) * (y - line[3]);
+                line[1] = y;
+            }
+        }
+    }
+
 
     Mat reducedLinesImg = Mat::zeros(dst.rows, dst.cols, CV_8UC3);
     {
