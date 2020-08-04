@@ -11,9 +11,12 @@
 
 #include "opencv2/ximgproc.hpp"
 
+#include "opencv2/xfeatures2d.hpp"
+
 #include <algorithm>
 #include <iostream>
 #include <numeric>
+#include <fstream>
 
 using namespace cv;
 using namespace std;
@@ -875,6 +878,18 @@ int DoMain(const char* filename)
 
     dst &= funkyFunc;
 
+#if 0
+    {
+        // Specify size on vertical axis
+        int vertical_size = 2;// dst.rows / 30;
+        // Create structure element for extracting vertical lines through morphology operations
+        Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
+        // Apply morphology operations
+        dilate(dst, dst, verticalStructure);
+        erode(dst, dst, verticalStructure);
+    }
+#endif
+
     //medianBlur(dst, dst, 3);
 
     //bitwise_not(dst, dst);
@@ -1275,8 +1290,8 @@ int DoMain(const char* filename)
     }
     Vec4f lineParams;
     fitLine(pointCloud, lineParams, DIST_L2, 0, 0.01, 0.01);
-    auto cos_phi = -lineParams[1];
-    auto sin_phi = -lineParams[0];
+    auto cos_phi = lineParams[1];
+    auto sin_phi = lineParams[0];
     if (cos_phi < 0) {
         cos_phi = -cos_phi;
         sin_phi = -sin_phi;
@@ -1429,6 +1444,231 @@ int DoMain(const char* filename)
     imshow("Stripeless", stripeless);
 
     imshow("Func", func);
+
+//*
+    Mat func2 = (func - (128 / 8 * 7)) * 8;
+    GaussianBlur(func2, func2, Size(7, 7), 0, 0, BORDER_DEFAULT);
+
+    //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
+
+
+    auto surf = cv::xfeatures2d::SURF::create(7500);
+    std::vector<KeyPoint> keypoints;
+    cv::Mat descriptors;
+    surf->detectAndCompute(func2, cv::noArray(), keypoints, descriptors);
+
+    //const auto type = descriptors.type();
+    for (int i = 0; i < descriptors.rows; ++i)
+    {
+        Mat temp;
+        normalize(descriptors.row(i), temp);
+        temp.copyTo(descriptors.rowRange(i, i + 1));
+    }
+
+    cv::Mat coords(keypoints.size(), 4, CV_32F);
+    for (int i = 0; i < keypoints.size(); ++i)
+    {
+        auto& pt = keypoints[i].pt;
+        coords.at<float>(i, 0) = pt.x;
+        coords.at<float>(i, 1) = pt.y;
+        coords.at<float>(i, 2) = keypoints[i].angle;
+        coords.at<float>(i, 3) = keypoints[i].size;
+    }
+
+    std::vector<Mat> infos;
+
+    hconcat(coords, descriptors, coords);
+
+    InputArray(coords).getMatVector(infos);
+
+    std::vector<int> labels;
+    int equilavenceClassesCount = cv::partition(infos, labels, [](const Mat& d1, const Mat& d2) {
+        const auto MAX_DIST = 35;
+        //for (int i = 0; i < 2; ++i)
+        //    if (fabs(d1.at<float>(0, i) - d2.at<float>(0, i)) > MAX_DIST)
+        //        return false;
+
+        if (fabs(d1.at<float>(0, 1) - d2.at<float>(0, 1)) > MAX_DIST)
+            return false;
+
+        //auto angleDiff = d1.at<float>(0, 2) - d2.at<float>(0, 2);
+        //if (angleDiff < -180)
+        //    angleDiff += 360;
+        //if (angleDiff > 180)
+        //    angleDiff -= 360;
+
+        //if (fabs(angleDiff) > 170)
+        //    return false;
+
+        auto [minSize, maxSize] = std::minmax(d1.at<float>(0, 3), d2.at<float>(0, 3));
+        if (maxSize / minSize > 1.2)
+            return false;
+
+
+        const auto MAX_SQ_DIST = 0.1;
+        float sum = 0;
+        for (int i = 4; i < d1.cols; ++i)
+        {
+            sum += std::pow(d1.at<float>(0, i) - d2.at<float>(0, i), 2);
+            if (sum > MAX_SQ_DIST)
+                return false;
+        }
+
+        return true;
+    });
+
+
+    std::vector < std::vector<KeyPoint>> outKeypoints(equilavenceClassesCount);
+    for (int i = 0; i < keypoints.size(); ++i)
+    {
+        outKeypoints[labels[i]].push_back(keypoints[i]);
+    }
+
+    auto maxSet = std::max_element(outKeypoints.begin(), outKeypoints.end(),
+        [](const auto& left, const auto& right) { return left.size() < right.size(); });
+
+
+    std::vector<Mat> outInfos;
+
+    const int maxIdx = maxSet - outKeypoints.begin();
+
+    for (int i = 0; i < labels.size(); ++i)
+    {
+        if (labels[i] == maxIdx)
+            outInfos.push_back(infos[i]);
+    }
+
+    std::vector<int> outLabels;
+    int outEquilavenceClassesCount = cv::partition(outInfos, outLabels, [](const Mat& d1, const Mat& d2) {
+        const auto MAX_DIST = 25;
+        for (int i = 0; i < 2; ++i)
+            if (fabs(d1.at<float>(0, i) - d2.at<float>(0, i)) > MAX_DIST)
+                return false;
+
+        return true;
+    });
+
+    /*
+    //std::ofstream features("/test/features_1427.txt");
+    std::vector < std::vector<KeyPoint>> outKeypoints2(outEquilavenceClassesCount);
+    for (int i = 0; i < (*maxSet).size(); ++i)
+    {
+        //features << "{ ";
+        outKeypoints2[outLabels[i]].push_back((*maxSet)[i]);
+
+        //auto& d = outInfos[i];
+        //for (int j = 4; j < d.cols; ++j)
+        //{
+        //    features << d.at<float>(0, i) << ", ";
+        //}
+
+        //features << "},\n";
+    }
+
+    //features.close();
+
+    auto maxSet2 = std::max_element(outKeypoints2.begin(), outKeypoints2.end(),
+        [](const auto& left, const auto& right) { return left.size() < right.size(); });
+    const int maxIdx2 = maxSet2 - outKeypoints2.begin();
+
+    cv::Mat withSurfX = func2.clone();
+
+    Scalar color = Scalar(0, 255, 0);
+
+    std::ofstream features("/test/features_1538.txt");
+    for (int i = 0; i < outInfos.size(); ++i)
+    {
+        if (outLabels[i] == maxIdx2)
+        {
+            auto& d = outInfos[i];
+
+            features << "{ ";
+            for (int j = 4; j < d.cols; ++j)
+            {
+                features << d.at<float>(0, j) << ", ";
+            }
+            features << "},\n";
+
+            int radius = 2;
+            int thickness = -1;
+            circle(withSurfX, Point(d.at<float>(0, 0), d.at<float>(0, 1)), radius, color, thickness);
+        }
+    }
+    features.close();
+
+    imshow("withSurfX", withSurfX);
+
+    cv::Mat withSurf = func2.clone();
+    RNG rng(215526);
+    for (auto& kp : outKeypoints2)
+    {
+        auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
+        cv::drawKeypoints(withSurf, kp, withSurf, color);// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    }
+    */
+
+
+
+    //for (auto v : *maxSet)
+    //{
+    //    std::cout << v.angle << ' ';
+    //}
+    //std::cout << '\n';
+
+    //*
+    cv::Mat withSurf = func2.clone();
+
+    RNG rng(215526);
+    for (auto& kp : outKeypoints)
+    {
+        auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));
+        cv::drawKeypoints(withSurf, kp, withSurf, color);// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    }
+    //*/
+
+    /*
+    cv::Mat withSurf;
+
+    cv::drawKeypoints(func2, *maxSet, withSurf, { 255, 0, 0 }, cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    */
+
+    imshow("withSurf", withSurf);
+//*/
+
+/*
+    auto suft = cv::xfeatures2d::SIFT::create();
+    std::vector<KeyPoint> keypoints;
+    cv::Mat descriptors;
+    suft->detectAndCompute(func, cv::noArray(), keypoints, descriptors);
+
+    cv::Mat withSift;
+    cv::drawKeypoints(func, keypoints, withSift, { 255, 0, 0 }, cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+    imshow("withSift", withSift);
+*/
+
+/*
+    auto fast = cv::FastFeatureDetector::create();
+    std::vector<KeyPoint> keypoints;
+    fast->detect(func, keypoints);
+
+    cv::Mat withFast;
+    cv::drawKeypoints(func, keypoints, withFast, { 255, 0, 0 }, cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+    imshow("withFast", withFast);
+*/
+
+/*
+    auto orb = cv::ORB::create();
+    std::vector<KeyPoint> keypoints;
+    cv::Mat descriptors;
+    orb->detectAndCompute(func, cv::noArray(), keypoints, descriptors);
+
+    cv::Mat withOrb;
+    cv::drawKeypoints(func, keypoints, withOrb, { 255, 0, 0 }, cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+    imshow("withOrb", withOrb);
+*/
 
     //imshow("Func2", func2);
 
