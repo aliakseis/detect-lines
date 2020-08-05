@@ -24,7 +24,7 @@ FIND_PACKAGE( OpenCV 4 REQUIRED )
 
 
 add_executable(detect-lines
-               main.cpp detect-lines.cpp)
+               main.cpp detect-lines.cpp known-good.cpp)
 target_include_directories(detect-lines PRIVATE )
 target_link_libraries(detect-lines
                       ${OpenCV_LIBRARIES})

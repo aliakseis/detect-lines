@@ -5,6 +5,8 @@
 
 #include "detect-lines.h"
 
+#include "known-good.h"
+
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
@@ -489,6 +491,9 @@ std::vector<Vec4i> reduceLines(const vector<Vec4i>& linesP,
 
 int DoMain(const char* filename);
 
+int FindFeatures(const char* filename);
+
+
 int main(int argc, char** argv)
 {
     // Declare the output variables
@@ -498,7 +503,10 @@ int main(int argc, char** argv)
     const char* default_file = "../data/sudoku.png";
     const char* filename = argc >= 2 ? argv[1] : default_file;
 
-    return DoMain(filename);
+    //return DoMain(filename);
+
+    return FindFeatures(filename);
+
     /*
     Mat src = imread(filename);// , IMREAD_GRAYSCALE);
 
@@ -519,6 +527,104 @@ int main(int argc, char** argv)
     // Wait and Exit
     waitKey();
     */
+}
+
+
+
+int FindFeatures(const char* filename)
+{
+    // Loads an image
+    Mat src = imread(filename, IMREAD_GRAYSCALE);
+
+    // Check if image is loaded fine
+    if (src.empty()) {
+        printf(" Error opening image\n");
+        printf(" Program Arguments: [image_name -- default %s] \n", filename);
+        return -1;
+    }
+    //![load]
+
+    Mat lowLevelFloat = Mat::zeros(src.size(), CV_32F);
+    for (int y = 0; y < src.rows; y++) {
+        for (int x = 0; x < src.cols; x++) {
+            int v = src.at<uchar>(y, x);
+            lowLevelFloat.at<float>(y, x) = std::clamp(v, 0, 1) * 10;
+        }
+    }
+
+
+    resize(src, src, Size(800, 800), 0, 0, INTER_LANCZOS4);
+
+    resize(lowLevelFloat, lowLevelFloat, Size(800, 800), 0, 0, INTER_LANCZOS4);
+    GaussianBlur(lowLevelFloat, lowLevelFloat, Size(9, 35), 0, 0, BORDER_DEFAULT);
+    Mat lowLevel;
+    lowLevelFloat.convertTo(lowLevel, CV_8U);
+
+    src += lowLevel;
+
+
+    Mat dst = src.clone();
+
+    const auto kernel_size = 3;
+    GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+
+
+    Mat dstFloat;
+    src.convertTo(dstFloat, CV_32F);
+
+    Mat backgroundFloat;
+    GaussianBlur(dstFloat, backgroundFloat, Size(63, 63), 0, 0, BORDER_DEFAULT);
+    backgroundFloat -= 0.5;
+
+    Mat background;
+    backgroundFloat.convertTo(background, CV_8U);
+
+    GaussianBlur(dstFloat, dstFloat, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+
+
+
+    Mat stripeless;
+    GaussianBlur(dstFloat, stripeless, Size(63, 1), 0, 0, BORDER_DEFAULT);
+
+    Mat funcFloat = (dstFloat - stripeless + 32.) * 4.;
+    //GaussianBlur(funcFloat, funcFloat, Size(3, 3), 0, 0, BORDER_DEFAULT);
+    Mat func;
+    funcFloat.convertTo(func, CV_8U);
+
+
+    Mat func2 = (func - (128 / 8 * 7)) * 8;
+    GaussianBlur(func2, func2, Size(7, 7), 0, 0, BORDER_DEFAULT);
+
+    //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
+
+
+    auto surf = cv::xfeatures2d::SURF::create(5000);
+    std::vector<KeyPoint> keypoints;
+    cv::Mat descriptors;
+    surf->detectAndCompute(func2, cv::noArray(), keypoints, descriptors);
+
+    // http://itnotesblog.ru/note.php?id=271
+    FlannBasedMatcher matcher;
+    std::vector< DMatch > matches;
+    matcher.match(descriptors, GetKnownGood(), matches);
+
+    std::vector< KeyPoint > goodkeypoints;
+
+    for (int i = 0; i < descriptors.rows; i++) {
+        if (matches[i].distance < 0.1) {
+            goodkeypoints.push_back(keypoints[i]);
+        }
+    }
+
+    cv::Mat withSurf = func2.clone();
+
+    cv::drawKeypoints(withSurf, goodkeypoints, withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+    imshow("withSurf", withSurf);
+
+    waitKey();
+
+    return 0;
 }
 
 
@@ -1452,18 +1558,20 @@ int DoMain(const char* filename)
     //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
 
 
-    auto surf = cv::xfeatures2d::SURF::create(7500);
+    auto surf = cv::xfeatures2d::SURF::create(10000);
     std::vector<KeyPoint> keypoints;
     cv::Mat descriptors;
     surf->detectAndCompute(func2, cv::noArray(), keypoints, descriptors);
 
     //const auto type = descriptors.type();
+    /*
     for (int i = 0; i < descriptors.rows; ++i)
     {
         Mat temp;
         normalize(descriptors.row(i), temp);
         temp.copyTo(descriptors.rowRange(i, i + 1));
     }
+    */
 
     cv::Mat coords(keypoints.size(), 4, CV_32F);
     for (int i = 0; i < keypoints.size(); ++i)
@@ -1483,13 +1591,21 @@ int DoMain(const char* filename)
 
     std::vector<int> labels;
     int equilavenceClassesCount = cv::partition(infos, labels, [](const Mat& d1, const Mat& d2) {
-        const auto MAX_DIST = 35;
-        //for (int i = 0; i < 2; ++i)
-        //    if (fabs(d1.at<float>(0, i) - d2.at<float>(0, i)) > MAX_DIST)
-        //        return false;
+        const auto MAX_DIST = 100;
+        for (int i = 0; i < 2; ++i)
+            if (fabs(d1.at<float>(0, i) - d2.at<float>(0, i)) > MAX_DIST)
+                return false;
 
-        if (fabs(d1.at<float>(0, 1) - d2.at<float>(0, 1)) > MAX_DIST)
+        // !
+        //if (fabs(d1.at<float>(0, 1) - d2.at<float>(0, 1)) > MAX_DIST)
+        //    return false;
+
+        //if ((d1.at<float>(0, 1) > 398) != (d2.at<float>(0, 1) > 398))
+        //    return false;
+
+        if ((d1.at<float>(0, 1) < 398) || (d2.at<float>(0, 1) < 398))
             return false;
+
 
         //auto angleDiff = d1.at<float>(0, 2) - d2.at<float>(0, 2);
         //if (angleDiff < -180)
@@ -1500,12 +1616,13 @@ int DoMain(const char* filename)
         //if (fabs(angleDiff) > 170)
         //    return false;
 
+        // !
         auto [minSize, maxSize] = std::minmax(d1.at<float>(0, 3), d2.at<float>(0, 3));
-        if (maxSize / minSize > 1.2)
+        if (maxSize / minSize > 1.28575)
             return false;
 
 
-        const auto MAX_SQ_DIST = 0.1;
+        const auto MAX_SQ_DIST = 0.1549; //0.21897;
         float sum = 0;
         for (int i = 4; i < d1.cols; ++i)
         {
@@ -1540,7 +1657,7 @@ int DoMain(const char* filename)
 
     std::vector<int> outLabels;
     int outEquilavenceClassesCount = cv::partition(outInfos, outLabels, [](const Mat& d1, const Mat& d2) {
-        const auto MAX_DIST = 25;
+        const auto MAX_DIST = 45;
         for (int i = 0; i < 2; ++i)
             if (fabs(d1.at<float>(0, i) - d2.at<float>(0, i)) > MAX_DIST)
                 return false;
@@ -1548,8 +1665,8 @@ int DoMain(const char* filename)
         return true;
     });
 
-    /*
-    //std::ofstream features("/test/features_1427.txt");
+    //*
+    //std::ofstream features("/test/features_1428.txt");
     std::vector < std::vector<KeyPoint>> outKeypoints2(outEquilavenceClassesCount);
     for (int i = 0; i < (*maxSet).size(); ++i)
     {
@@ -1575,9 +1692,90 @@ int DoMain(const char* filename)
 
     Scalar color = Scalar(0, 255, 0);
 
-    std::ofstream features("/test/features_1538.txt");
+    /*
+    bool crap[30] = {
+        //false,
+        //false,
+        //false,
+        //false,
+        //false,
+        //false,
+
+        //false,
+        //false,
+        //false,
+        //false,
+        //false,
+        //false,
+
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+    };
+    */
+
+
+    std::ofstream features("/test/features_1428.txt");
     for (int i = 0; i < outInfos.size(); ++i)
     {
+        //if (i >= 20 && i < 28)
+        //    continue;
+
+        if (i == 18)
+            continue;
+        if (i == 20)
+            continue;
+        if (i == 23)
+            continue;
+        if (i == 25)
+            continue;
+        if (i == 26)
+            continue;
+        if (i == 28)
+            continue;
+        if (i == 29)
+            continue;
+
+        //if (crap[i])
+        //    continue;
+
         if (outLabels[i] == maxIdx2)
         {
             auto& d = outInfos[i];
@@ -1592,6 +1790,18 @@ int DoMain(const char* filename)
             int radius = 2;
             int thickness = -1;
             circle(withSurfX, Point(d.at<float>(0, 0), d.at<float>(0, 1)), radius, color, thickness);
+
+            /*
+            //auto fontFace = FONT_HERSHEY_SIMPLEX;
+            //auto fontScale = 1.0f;
+            //auto fontThickness = 2;
+            auto index = std::to_string(i);
+            putText(withSurfX, index,
+                Point(d.at<float>(0, 0), d.at<float>(0, 1) + (i / 20) * 50), 
+                cv::FONT_HERSHEY_COMPLEX_SMALL, 1., color, 1);
+                
+                //fontFace, fontScale, color, fontThickness, 1);
+             */
         }
     }
     features.close();
@@ -1605,7 +1815,7 @@ int DoMain(const char* filename)
         auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));;
         cv::drawKeypoints(withSurf, kp, withSurf, color);// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
     }
-    */
+    //*/
 
 
 
@@ -1615,10 +1825,10 @@ int DoMain(const char* filename)
     //}
     //std::cout << '\n';
 
-    //*
+    /*
     cv::Mat withSurf = func2.clone();
 
-    RNG rng(215526);
+    RNG rng(215527);
     for (auto& kp : outKeypoints)
     {
         auto color = Scalar(rng.uniform(30, 255), rng.uniform(30, 255), rng.uniform(30, 255));
