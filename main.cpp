@@ -557,29 +557,50 @@ int FindFeatures(const char* filename)
 
     resize(lowLevelFloat, lowLevelFloat, Size(800, 800), 0, 0, INTER_LANCZOS4);
     GaussianBlur(lowLevelFloat, lowLevelFloat, Size(9, 35), 0, 0, BORDER_DEFAULT);
+
+
+
+
     Mat lowLevel;
     lowLevelFloat.convertTo(lowLevel, CV_8U);
-
-    src += lowLevel;
-
-
-    Mat dst = src.clone();
-
-    const auto kernel_size = 3;
-    GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
-
 
     Mat dstFloat;
     src.convertTo(dstFloat, CV_32F);
 
-    Mat backgroundFloat;
-    GaussianBlur(dstFloat, backgroundFloat, Size(63, 63), 0, 0, BORDER_DEFAULT);
-    backgroundFloat -= 0.5;
+    Mat dstFloat2 = dstFloat.clone();
 
-    Mat background;
-    backgroundFloat.convertTo(background, CV_8U);
+    for (int y = 0; y < dstFloat2.rows; y++) {
+        for (int x = 0; x < dstFloat2.cols; x++) {
+            const auto threshold = 246;
+            int v = dstFloat2.at<float>(y, x);
+            if (v > threshold)
+                dstFloat2.at<float>(y, x) = v + (v - threshold) * 2;
+        }
+    }
+
+
+    dstFloat += lowLevelFloat;
+    dstFloat2 += lowLevelFloat;
+
+    src += lowLevel;
+
+    const auto kernel_size = 3;
+    /*
+    Mat dst = src.clone();
+
+    GaussianBlur(dst, dst, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+    */
+
+
+    //Mat backgroundFloat;
+    //GaussianBlur(dstFloat, backgroundFloat, Size(63, 63), 0, 0, BORDER_DEFAULT);
+    //backgroundFloat -= 0.5;
+
+    //Mat background;
+    //backgroundFloat.convertTo(background, CV_8U);
 
     GaussianBlur(dstFloat, dstFloat, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
+    GaussianBlur(dstFloat2, dstFloat2, Size(kernel_size, kernel_size), 0, 0, BORDER_DEFAULT);
 
 
 
@@ -592,8 +613,16 @@ int FindFeatures(const char* filename)
     funcFloat.convertTo(func, CV_8U);
 
 
-    Mat func2 = (func - (128 / 8 * 7)) * 8;
-    GaussianBlur(func2, func2, Size(7, 7), 0, 0, BORDER_DEFAULT);
+    Mat stripeless2;
+    GaussianBlur(dstFloat2, stripeless2, Size(63, 1), 0, 0, BORDER_DEFAULT);
+
+    Mat funcFloat2 = (dstFloat2 - stripeless2 + 32.) * 4.;
+    //GaussianBlur(funcFloat, funcFloat, Size(3, 3), 0, 0, BORDER_DEFAULT);
+    Mat func2;
+    funcFloat2.convertTo(func2, CV_8U);
+
+    Mat func4surf = (func - (128 / 8 * 7)) * 8;
+    GaussianBlur(func4surf, func4surf, Size(7, 7), 0, 0, BORDER_DEFAULT);
 
     //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
 
@@ -601,7 +630,7 @@ int FindFeatures(const char* filename)
     auto surf = cv::xfeatures2d::SURF::create(5000);
     std::vector<KeyPoint> keypoints;
     cv::Mat descriptors;
-    surf->detectAndCompute(func2, cv::noArray(), keypoints, descriptors);
+    surf->detectAndCompute(func4surf, cv::noArray(), keypoints, descriptors);
 
     // http://itnotesblog.ru/note.php?id=271
     FlannBasedMatcher matcher;
@@ -611,16 +640,40 @@ int FindFeatures(const char* filename)
     std::vector< KeyPoint > goodkeypoints;
 
     for (int i = 0; i < descriptors.rows; i++) {
-        if (matches[i].distance < 0.1) {
+        if (matches[i].distance < 0.15) {
             goodkeypoints.push_back(keypoints[i]);
         }
     }
 
-    cv::Mat withSurf = func2.clone();
+    cv::Mat withSurf = func4surf.clone();
 
     cv::drawKeypoints(withSurf, goodkeypoints, withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
     imshow("withSurf", withSurf);
+
+    Mat thresh = func2.clone();
+    thresh += 127;
+    imshow("thresh0", thresh);
+    adaptiveThreshold(thresh, thresh, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 1.0);
+
+    imshow("thresh", thresh);
+
+    Mat skeleton;
+    thinning(thresh, skeleton);
+    /*
+    // Specify size on vertical axis
+    int vertical_size = 2;// dst.rows / 30;
+    // Create structure element for extracting vertical lines through morphology operations
+    Mat verticalStructure = getStructuringElement(MORPH_RECT, Size(1, vertical_size));
+    // Apply morphology operations
+    erode(skeleton, skeleton, verticalStructure);
+    dilate(skeleton, skeleton, verticalStructure);
+    */
+
+    cv::drawKeypoints(skeleton, goodkeypoints, skeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+    imshow("skeleton", skeleton);
+
 
     waitKey();
 
