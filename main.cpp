@@ -530,12 +530,15 @@ int main(int argc, char** argv)
 }
 
 
-void doFindPath(const cv::Mat& mat, cv::Point pt, cv::Point& final, int vertical)
+void doFindPath(const cv::Mat& mat, cv::Point pt, cv::Point& final, int vertical, float cumulativeAngle)
 {
     if (pt.x < 0 || pt.x >= mat.cols || pt.y < 0 || pt.y >= mat.rows)
         return;
 
     if (abs(vertical) > 1)
+        return;
+
+    if (fabs(cumulativeAngle) > 1.8)
         return;
 
     if (mat.at<uchar>(pt) == 0)
@@ -544,14 +547,16 @@ void doFindPath(const cv::Mat& mat, cv::Point pt, cv::Point& final, int vertical
     if (final.y > pt.y)
         final = pt;
 
+    cumulativeAngle *= 0.8;
+
     //if (pt.y > 0 && mat.at<uchar>(Point(pt.x, pt.y - 1)) > 0)
-    doFindPath(mat, Point(pt.x, pt.y - 1), final, 0);
-    doFindPath(mat, Point(pt.x + 1, pt.y - 1), final, 0);
-    doFindPath(mat, Point(pt.x - 1, pt.y - 1), final, 0);
+    doFindPath(mat, Point(pt.x, pt.y - 1), final, 0, cumulativeAngle);
+    doFindPath(mat, Point(pt.x + 1, pt.y - 1), final, 0, cumulativeAngle + 0.5);
+    doFindPath(mat, Point(pt.x - 1, pt.y - 1), final, 0, cumulativeAngle - 0.5);
     if (vertical >= 0)
-        doFindPath(mat, Point(pt.x + 1, pt.y), final, vertical + 1);
+        doFindPath(mat, Point(pt.x + 1, pt.y), final, vertical + 1, cumulativeAngle + 1);
     if (vertical <= 0)
-        doFindPath(mat, Point(pt.x - 1, pt.y), final, vertical - 1);
+        doFindPath(mat, Point(pt.x - 1, pt.y), final, vertical - 1, cumulativeAngle - 1);
 }
 
 cv::Point FindPath(const cv::Mat& mat, const cv::Point& start)
@@ -564,7 +569,7 @@ cv::Point FindPath(const cv::Mat& mat, const cv::Point& start)
     if (pos.x < 0)
         return start;
 
-    doFindPath(mat, pos, pos, 0);
+    doFindPath(mat, pos, pos, 0, 0);
 
     return pos;
 }
@@ -679,14 +684,40 @@ int FindFeatures(const char* filename)
     std::vector< KeyPoint > goodkeypoints;
 
     for (int i = 0; i < descriptors.rows; i++) {
-        if (matches[i].distance < 0.15) {
+        if (matches[i].distance < 0.175) {
             goodkeypoints.push_back(keypoints[i]);
         }
     }
 
+
+    std::vector<int> labels;
+    int equilavenceClassesCount = cv::partition(goodkeypoints, labels, [](const KeyPoint& k1, const KeyPoint& k2) {
+        const auto MAX_DIST = 45;
+        if (fabs(k1.pt.x - k2.pt.x) > MAX_DIST || fabs(k1.pt.y - k2.pt.y) > MAX_DIST)
+                return false;
+
+        auto[minSize, maxSize] = std::minmax(k1.size, k2.size);
+        if (maxSize / minSize > 1.35)
+            return false;
+
+        return true;
+    });
+
+    std::vector < std::vector<KeyPoint>> outKeypoints(equilavenceClassesCount);
+    for (int i = 0; i < goodkeypoints.size(); ++i)
+    {
+        outKeypoints[labels[i]].push_back(goodkeypoints[i]);
+    }
+
+    auto maxSet = std::max_element(outKeypoints.begin(), outKeypoints.end(),
+        [](const auto& left, const auto& right) { return left.size() < right.size(); });
+
+
+    const int maxIdx = maxSet - outKeypoints.begin();
+
     cv::Mat withSurf = func4surf.clone();
 
-    cv::drawKeypoints(withSurf, goodkeypoints, withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::drawKeypoints(withSurf, outKeypoints[maxIdx], withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
     imshow("withSurf", withSurf);
 
@@ -710,9 +741,9 @@ int FindFeatures(const char* filename)
     */
 
     cv::Mat outSkeleton;
-    cv::drawKeypoints(skeleton, goodkeypoints, outSkeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::drawKeypoints(skeleton, outKeypoints[maxIdx], outSkeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
-    for (auto& kp : goodkeypoints)
+    for (auto& kp : outKeypoints[maxIdx])
     {
         cv::Point pos(kp.pt);
         auto start = FindPath(skeleton, pos);
