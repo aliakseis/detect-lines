@@ -530,6 +530,45 @@ int main(int argc, char** argv)
 }
 
 
+void doFindPath(const cv::Mat& mat, cv::Point pt, cv::Point& final, int vertical)
+{
+    if (pt.x < 0 || pt.x >= mat.cols || pt.y < 0 || pt.y >= mat.rows)
+        return;
+
+    if (abs(vertical) > 1)
+        return;
+
+    if (mat.at<uchar>(pt) == 0)
+        return;
+
+    if (final.y > pt.y)
+        final = pt;
+
+    //if (pt.y > 0 && mat.at<uchar>(Point(pt.x, pt.y - 1)) > 0)
+    doFindPath(mat, Point(pt.x, pt.y - 1), final, 0);
+    doFindPath(mat, Point(pt.x + 1, pt.y - 1), final, 0);
+    doFindPath(mat, Point(pt.x - 1, pt.y - 1), final, 0);
+    if (vertical >= 0)
+        doFindPath(mat, Point(pt.x + 1, pt.y), final, vertical + 1);
+    if (vertical <= 0)
+        doFindPath(mat, Point(pt.x - 1, pt.y), final, vertical - 1);
+}
+
+cv::Point FindPath(const cv::Mat& mat, const cv::Point& start)
+{
+    cv::Point pos = start;
+
+    while (pos.x >= 0 && mat.at<uchar>(pos) == 0)
+        --pos.x;
+
+    if (pos.x < 0)
+        return start;
+
+    doFindPath(mat, pos, pos, 0);
+
+    return pos;
+}
+
 
 int FindFeatures(const char* filename)
 {
@@ -670,9 +709,22 @@ int FindFeatures(const char* filename)
     dilate(skeleton, skeleton, verticalStructure);
     */
 
-    cv::drawKeypoints(skeleton, goodkeypoints, skeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::Mat outSkeleton;
+    cv::drawKeypoints(skeleton, goodkeypoints, outSkeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
-    imshow("skeleton", skeleton);
+    for (auto& kp : goodkeypoints)
+    {
+        cv::Point pos(kp.pt);
+        auto start = FindPath(skeleton, pos);
+        int radius = 2;
+        int thickness = -1;
+        circle(outSkeleton, start, radius, { 0, 255, 0 }, thickness);
+        line(outSkeleton, pos, start, { 0, 255, 0 });
+    }
+
+
+
+    imshow("outSkeleton", outSkeleton);
 
 
     waitKey();
