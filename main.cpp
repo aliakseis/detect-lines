@@ -575,6 +575,63 @@ cv::Point FindPath(const cv::Mat& mat, const cv::Point& start)
 }
 
 
+//! [calcGST]
+//! [calcJ_header]
+void calcGST(const Mat& inputImg, Mat& imgOrientationOut, int w = 52)
+{
+    Mat img;
+    inputImg.convertTo(img, CV_32F);
+
+    // GST components calculation (start)
+    // J =  (J11 J12; J12 J22) - GST
+    Mat imgDiffX, imgDiffY, imgDiffXY;
+    Sobel(img, imgDiffX, CV_32F, 1, 0, 3);
+    Sobel(img, imgDiffY, CV_32F, 0, 1, 3);
+    multiply(imgDiffX, imgDiffY, imgDiffXY);
+    //! [calcJ_header]
+
+    Mat imgDiffXX, imgDiffYY;
+    multiply(imgDiffX, imgDiffX, imgDiffXX);
+    multiply(imgDiffY, imgDiffY, imgDiffYY);
+
+    Mat J11, J22, J12;      // J11, J22 and J12 are GST components
+    boxFilter(imgDiffXX, J11, CV_32F, Size(w, w));
+    boxFilter(imgDiffYY, J22, CV_32F, Size(w, w));
+    boxFilter(imgDiffXY, J12, CV_32F, Size(w, w));
+    // GST components calculation (stop)
+
+    // eigenvalue calculation (start)
+    // lambda1 = J11 + J22 + sqrt((J11-J22)^2 + 4*J12^2)
+    // lambda2 = J11 + J22 - sqrt((J11-J22)^2 + 4*J12^2)
+    Mat tmp1, tmp2, tmp3, tmp4;
+    tmp1 = J11 + J22;
+    tmp2 = J11 - J22;
+    multiply(tmp2, tmp2, tmp2);
+    multiply(J12, J12, tmp3);
+    sqrt(tmp2 + 4.0 * tmp3, tmp4);
+
+    Mat lambda1, lambda2;
+    lambda1 = tmp1 + tmp4;      // biggest eigenvalue
+    lambda2 = tmp1 - tmp4;      // smallest eigenvalue
+    // eigenvalue calculation (stop)
+
+    // Coherency calculation (start)
+    // Coherency = (lambda1 - lambda2)/(lambda1 + lambda2)) - measure of anisotropism
+    // Coherency is anisotropy degree (consistency of local orientation)
+    //divide(lambda1 - lambda2, lambda1 + lambda2, imgCoherencyOut);
+    // Coherency calculation (stop)
+
+    // orientation angle calculation (start)
+    // tan(2*Alpha) = 2*J12/(J22 - J11)
+    // Alpha = 0.5 atan2(2*J12/(J22 - J11))
+    phase(J22 - J11, 2.0*J12, imgOrientationOut);// , true);
+    imgOrientationOut = 0.5*imgOrientationOut;
+    // orientation angle calculation (stop)
+}
+//! [calcGST]
+
+
+
 int FindFeatures(const char* filename)
 {
     // Loads an image
@@ -713,11 +770,21 @@ int FindFeatures(const char* filename)
         [](const auto& left, const auto& right) { return left.size() < right.size(); });
 
 
-    const int maxIdx = maxSet - outKeypoints.begin();
+    //const int maxIdx = maxSet - outKeypoints.begin();
+
+    for (int i = maxSet->size() - 1; --i >= 0;)
+        for (int j = maxSet->size(); --i > i;)
+        {
+            if (hypot((*maxSet)[i].pt.x - (*maxSet)[j].pt.x, (*maxSet)[i].pt.y - (*maxSet)[j].pt.y) < 5)
+            {
+                maxSet->erase(maxSet->begin() + j);
+            }
+        }
+
 
     cv::Mat withSurf = func4surf.clone();
 
-    cv::drawKeypoints(withSurf, outKeypoints[maxIdx], withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::drawKeypoints(withSurf, *maxSet, withSurf, {0, 255, 0});// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
     imshow("withSurf", withSurf);
 
@@ -727,6 +794,16 @@ int FindFeatures(const char* filename)
     adaptiveThreshold(thresh, thresh, 255, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY_INV, 19, 1.0);
 
     imshow("thresh", thresh);
+
+    Mat erodeDilate = thresh.clone();
+    {
+        Mat erodeStructure = getStructuringElement(MORPH_RECT, Size(3, 5));
+        erode(erodeDilate, erodeDilate, erodeStructure);
+        Mat dilateStructure = getStructuringElement(MORPH_RECT, Size(9, 5));
+        dilate(erodeDilate, erodeDilate, dilateStructure);
+    }
+
+    imshow("erodeDilate", erodeDilate);
 
     Mat skeleton;
     thinning(thresh, skeleton);
@@ -741,9 +818,31 @@ int FindFeatures(const char* filename)
     */
 
     cv::Mat outSkeleton;
-    cv::drawKeypoints(skeleton, outKeypoints[maxIdx], outSkeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+    cv::drawKeypoints(skeleton, *maxSet, outSkeleton, { 0, 255, 0 });// , cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
 
-    for (auto& kp : outKeypoints[maxIdx])
+
+
+    cv::Mat imgOrientation;
+    calcGST(func2, imgOrientation);
+
+    std::vector<float> orientations;
+    for (auto& kp : *maxSet)
+    {
+        cv::Point pos(kp.pt);
+        auto v = imgOrientation.at<float>(pos);
+        orientations.push_back(v);
+    }
+
+    const auto mid = orientations.size() / 2;
+    std::nth_element(orientations.begin(), orientations.begin() + mid, orientations.end());
+    const auto medianAngle = orientations[mid];
+
+    auto cos_phi = sin(medianAngle);
+    auto sin_phi = -cos(medianAngle);
+
+
+
+    for (auto& kp : *maxSet)
     {
         cv::Point pos(kp.pt);
         auto start = FindPath(skeleton, pos);
@@ -751,11 +850,18 @@ int FindFeatures(const char* filename)
         int thickness = -1;
         circle(outSkeleton, start, radius, { 0, 255, 0 }, thickness);
         line(outSkeleton, pos, start, { 0, 255, 0 });
+
+        const auto y_first = start.x * sin_phi + start.y * cos_phi;
+        const auto y_second = pos.x * sin_phi + pos.y * cos_phi;
+
+        const auto x_first = start.x * cos_phi - start.y * sin_phi;
+        const auto x_second = pos.x * cos_phi - pos.y * sin_phi;
+
+        line(outSkeleton, Point(x_first, y_first), Point(x_second, y_second), { 255, 0, 0 });
     }
 
-
-
     imshow("outSkeleton", outSkeleton);
+
 
 
     waitKey();
