@@ -503,9 +503,9 @@ int main(int argc, char** argv)
     const char* default_file = "../data/sudoku.png";
     const char* filename = argc >= 2 ? argv[1] : default_file;
 
-    //return DoMain(filename);
+    return DoMain(filename);
 
-    return FindFeatures(filename);
+    //return FindFeatures(filename);
 
     /*
     Mat src = imread(filename);// , IMREAD_GRAYSCALE);
@@ -567,6 +567,21 @@ cv::Point FindPath(const cv::Mat& mat, const cv::Point& start)
         --pos.x;
 
     if (pos.x < 0)
+        return start;
+
+    doFindPath(mat, pos, pos, 0, 0);
+
+    return pos;
+}
+
+cv::Point FindRightPath(const cv::Mat& mat, const cv::Point& start)
+{
+    cv::Point pos = start;
+
+    while (pos.x < mat.cols - 1 && mat.at<uchar>(pos) == 0)
+        ++pos.x;
+
+    if (pos.x == mat.cols - 1)
         return start;
 
     doFindPath(mat, pos, pos, 0, 0);
@@ -728,7 +743,7 @@ int FindFeatures(const char* filename)
     //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
 
 
-    auto surf = cv::xfeatures2d::SURF::create(5000);
+    auto surf = cv::xfeatures2d::SURF::create(1000);
     std::vector<KeyPoint> keypoints;
     cv::Mat descriptors;
     surf->detectAndCompute(func4surf, cv::noArray(), keypoints, descriptors);
@@ -741,7 +756,7 @@ int FindFeatures(const char* filename)
     std::vector< KeyPoint > goodkeypoints;
 
     for (int i = 0; i < descriptors.rows; i++) {
-        if (matches[i].distance < 0.175) {
+        if (matches[i].distance < 1.75) {
             goodkeypoints.push_back(keypoints[i]);
         }
     }
@@ -773,7 +788,7 @@ int FindFeatures(const char* filename)
     //const int maxIdx = maxSet - outKeypoints.begin();
 
     for (int i = maxSet->size() - 1; --i >= 0;)
-        for (int j = maxSet->size(); --i > i;)
+        for (int j = maxSet->size(); --j > i;)
         {
             if (hypot((*maxSet)[i].pt.x - (*maxSet)[j].pt.x, (*maxSet)[i].pt.y - (*maxSet)[j].pt.y) < 5)
             {
@@ -840,7 +855,60 @@ int FindFeatures(const char* filename)
     auto cos_phi = sin(medianAngle);
     auto sin_phi = -cos(medianAngle);
 
+    // sort
+    auto sortLam = [cos_phi, sin_phi](const KeyPoint& kp) {
+        double x_new = kp.pt.x * cos_phi - kp.pt.y * sin_phi;
+        return x_new;
+    };
 
+    std::sort(maxSet->begin(), maxSet->end(), [&sortLam](const KeyPoint& kp1, const KeyPoint& kp2) {
+        return sortLam(kp1) < sortLam(kp2);
+    });
+
+    double avgDist = 0;
+    {
+        auto it = maxSet->begin();
+        double distSum = 0;
+        double prevX = sortLam(*it);
+        while (++it != maxSet->end())
+        {
+            double x = sortLam(*it);
+            distSum += x - prevX;
+            prevX = x;
+        }
+
+        avgDist = distSum / (maxSet->size() - 1);
+    }
+
+    const auto righLong = FindRightPath(skeleton, cv::Point(maxSet->rbegin()->pt));
+
+    cv::Point rightLineStart(righLong);
+    rightLineStart.x += avgDist * 3 / 4;
+    rightLineStart.y += avgDist / 2;
+
+    cv::Point rightLineEnd;
+    rightLineEnd.y = erodeDilate.rows - 1;
+    rightLineEnd.x = rightLineStart.x + (rightLineEnd.y - rightLineStart.y) * sin_phi / cos_phi;
+
+    auto rightShort = rightLineStart;
+
+    LineIterator it(erodeDilate, rightLineStart, rightLineEnd);
+    for (int i = 0; i < it.count; i++, ++it)
+    {
+        auto val = erodeDilate.at<uchar>(it.pos());
+        if (val != 0)
+        {
+            rightShort = it.pos();
+            break;
+        }
+    }
+
+    circle(outSkeleton, righLong, 2, { 0, 255, 0 }, -1);
+    circle(outSkeleton, rightShort, 5, { 0, 255, 0 });
+
+    line(outSkeleton, righLong, rightShort, { 0, 255, 0 });
+
+    //line(outSkeleton, rightLineStart, rightLineEnd, { 0, 0, 255 });
 
     for (auto& kp : *maxSet)
     {
@@ -850,7 +918,7 @@ int FindFeatures(const char* filename)
         int thickness = -1;
         circle(outSkeleton, start, radius, { 0, 255, 0 }, thickness);
         line(outSkeleton, pos, start, { 0, 255, 0 });
-
+        /*
         const auto y_first = start.x * sin_phi + start.y * cos_phi;
         const auto y_second = pos.x * sin_phi + pos.y * cos_phi;
 
@@ -858,6 +926,7 @@ int FindFeatures(const char* filename)
         const auto x_second = pos.x * cos_phi - pos.y * sin_phi;
 
         line(outSkeleton, Point(x_first, y_first), Point(x_second, y_second), { 255, 0, 0 });
+        */
     }
 
     imshow("outSkeleton", outSkeleton);
@@ -1047,9 +1116,11 @@ int DoMain(const char* filename)
     }
 
 
-    resize(src, src, Size(800, 800), 0, 0, INTER_LANCZOS4);
+    enum { SIZE = 800 };
 
-    resize(lowLevelFloat, lowLevelFloat, Size(800, 800), 0, 0, INTER_LANCZOS4);
+    resize(src, src, Size(SIZE, SIZE), 0, 0, INTER_LANCZOS4);
+
+    resize(lowLevelFloat, lowLevelFloat, Size(SIZE, SIZE), 0, 0, INTER_LANCZOS4);
     GaussianBlur(lowLevelFloat, lowLevelFloat, Size(9, 35), 0, 0, BORDER_DEFAULT);
     Mat lowLevel;
     lowLevelFloat.convertTo(lowLevel, CV_8U);
@@ -1800,7 +1871,7 @@ int DoMain(const char* filename)
     //resize(func2, func2, Size(func2.cols / 2, func2.rows / 2), 0, 0, INTER_LANCZOS4);
 
 
-    auto surf = cv::xfeatures2d::SURF::create(10000);
+    auto surf = cv::xfeatures2d::SURF::create(100);
     std::vector<KeyPoint> keypoints;
     cv::Mat descriptors;
     surf->detectAndCompute(func2, cv::noArray(), keypoints, descriptors);
@@ -1845,7 +1916,7 @@ int DoMain(const char* filename)
         //if ((d1.at<float>(0, 1) > 398) != (d2.at<float>(0, 1) > 398))
         //    return false;
 
-        if ((d1.at<float>(0, 1) < 398) || (d2.at<float>(0, 1) < 398))
+        if ((d1.at<float>(0, 1) > 400) || (d2.at<float>(0, 1) > 400))
             return false;
 
 

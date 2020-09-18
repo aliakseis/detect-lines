@@ -30,6 +30,13 @@ target_link_libraries(detect-lines
                       ${OpenCV_LIBRARIES})
 
 
+add_executable(convert
+               convert.cpp )
+target_include_directories(convert PRIVATE )
+target_link_libraries(convert
+                      ${OpenCV_LIBRARIES})
+
+
 if(WIN32 OR APPLE)
 	set(CMAKE_INSTALL_PREFIX 
 		"${CMAKE_BINARY_DIR}/bin"
