@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.4)
+cmake_minimum_required(VERSION 3.14)
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -12,9 +12,9 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
 endif()
 
-
+ 
 if(MSVC)
-  add_definitions(-D_WIN32_WINNT=0x600)
+  add_definitions(-D_WIN32_WINNT=0x600 -D_USE_MATH_DEFINES)
 endif()
 
 
@@ -30,13 +30,14 @@ target_include_directories(detect-lines PRIVATE )
 target_link_libraries(detect-lines
                       ${OpenCV_LIBRARIES}
                       ${CERES_LIBRARIES})
-
+target_compile_features(detect-lines PRIVATE cxx_std_17)
 
 add_executable(convert
                convert.cpp )
 target_include_directories(convert PRIVATE )
 target_link_libraries(convert
                       ${OpenCV_LIBRARIES})
+target_compile_features(convert PRIVATE cxx_std_17)
 
 
 if(WIN32 OR APPLE)

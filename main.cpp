@@ -38,18 +38,17 @@ int main(int argc, char** argv)
         imwrite(outPath + ('/' + name) + ".jpg", img);
     };
 
-    auto lines = calculating(filename, lam);
+    auto lines = imaging::calculating(filename, lam);
 
-    //Scalar color = Scalar(0, 255, 0);
-    //int radius = 2;
-    //int thickness = -1;
-    //for (auto& line : lines) {
-    //    circle(src, Point(std::get<0>(line), std::get<1>(line)),  radius, color, thickness);
-    //    circle(src, Point(std::get<2>(line), std::get<3>(line)), radius, color, thickness);
-    //}
+    Scalar color = Scalar(0, 255, 0);
+    int radius = 2;
+    int thickness = -1;
+    for (auto& line : lines) {
+        circle(src, Point(std::get<0>(line), std::get<1>(line)),  radius, color, thickness);
+        circle(src, Point(std::get<2>(line), std::get<3>(line)), radius, color, thickness);
+    }
 
-    //imshow("Reduced Lines", src);
+    imshow("Reduced Lines", src);
 
-
-    //waitKey();
+    waitKey();
 }
